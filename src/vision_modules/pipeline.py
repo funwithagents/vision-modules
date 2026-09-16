@@ -53,6 +53,7 @@ class Stage[TIn: HasFrameId, TOut: HasFrameId]:
         self, upstream: Upstream[TIn], target_fps: float | None, name: str | None = None
     ) -> None:
         self._upstream = upstream
+        self._target_fps: float | None = None
         self.target_fps = target_fps
         self.name = name if name is not None else type(self).__name__
         self.last_error: BaseException | None = None
@@ -61,7 +62,19 @@ class Stage[TIn: HasFrameId, TOut: HasFrameId]:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
+    @property
+    def target_fps(self) -> float | None:
+        """Rate ceiling; None = as fast as upstream delivers. Settable while running."""
+        return self._target_fps
+
+    @target_fps.setter
+    def target_fps(self, value: float | None) -> None:
+        if value is not None and value <= 0:
+            raise ValueError(f"target_fps must be positive or None, got {value!r}")
+        self._target_fps = value
+
     def start(self) -> Self:
+        """Spawn the worker. No-op while running; after stop() it starts a fresh run."""
         if self._thread is not None:
             return self
         self._stop_event.clear()
@@ -113,11 +126,12 @@ class Stage[TIn: HasFrameId, TOut: HasFrameId]:
                     if out is not None:
                         self._slot.publish(out)
                         self.published_count += 1
-            # pacing
-            if self.target_fps is None:
+            # pacing (read target_fps once: it can be reassigned from another thread)
+            target_fps = self._target_fps
+            if target_fps is None:
                 self._stop_event.wait(0.001)  # tiny idle sleep; never busy-spin
             else:
-                remaining = (1.0 / self.target_fps) - (time.monotonic() - t0)
+                remaining = (1.0 / target_fps) - (time.monotonic() - t0)
                 self._stop_event.wait(
                     max(remaining, 0.0)
                 )  # wait() returns early when stop() fires
@@ -140,17 +154,20 @@ class Pipeline:
         self._nodes = list(nodes)
 
     def start(self) -> Self:
+        """All-or-nothing: if a node fails to start, the ones already started are stopped."""
+        started: list[Node] = []
         for node in self._nodes:
-            node.start()
+            try:
+                node.start()
+            except BaseException:
+                for exc in _stop_all(started):
+                    log.warning("stopping a node after a failed start raised: %r", exc)
+                raise
+            started.append(node)
         return self
 
     def stop(self) -> None:
-        errors: list[BaseException] = []
-        for node in reversed(self._nodes):
-            try:
-                node.stop()
-            except Exception as exc:  # noqa: BLE001 — stop every remaining node even if one fails
-                errors.append(exc)
+        errors = _stop_all(self._nodes)
         if errors:
             raise errors[0]
 
@@ -164,3 +181,14 @@ class Pipeline:
         traceback: TracebackType | None,
     ) -> None:
         self.stop()
+
+
+def _stop_all(nodes: Sequence[Node]) -> list[BaseException]:
+    """Stop every node, last first, even if some raise; return what was raised."""
+    errors: list[BaseException] = []
+    for node in reversed(nodes):
+        try:
+            node.stop()
+        except Exception as exc:  # noqa: BLE001 — stop every remaining node even if one fails
+            errors.append(exc)
+    return errors

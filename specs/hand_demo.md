@@ -2,6 +2,7 @@
 code:
   - examples/hand_demo.py
 tests:
+  - tests/test_hand_demo.py
 ---
 
 # Hand demo
@@ -18,7 +19,7 @@ The runnable, end-to-end demo that proves the graph works: a browser app wiring 
 
 The demo is `examples/hand_demo.py`, built on [Gradio](https://gradio.app)'s streaming webcam component (`gr.Image(sources=["webcam"], streaming=True)`) rather than a `cv2.imshow` window. The browser captures frames from the user's camera and streams them to a Python callback, which annotates a copy and returns it to a **separate** output image component — an input/output pair, not a loopback into the same component, so the raw feed and the detection overlay are both visible side by side at once.
 
-This changes where capture happens, but not the pipeline: a small `PushFrameSource` class implements [stream.md](stream.md)'s `FrameSource` protocol (`read()` / `close()`), fed by `push(image_bgr)` calls from the streaming callback instead of `OpenCVSource` reading a local device. `StreamProvider` wraps it exactly as it would wrap a camera, so mirroring, frame-id assignment, and the rest of `StreamProvider`'s behaviour are unchanged. `HandStage` and `GestureClassifier` are constructed and started/stopped the normal way via `Pipeline`, wrapped around `demo.launch()`:
+This changes where capture happens, but not the pipeline: a small `PushFrameSource` class implements [stream.md](stream.md)'s `FrameSource` protocol (`open()` / `read()` / `close()`), fed by `push(image_bgr)` calls from the streaming callback instead of `OpenCVSource` reading a local device. `read()` blocks until the next push; `close()` wakes it and makes it return `None` (that is how `StreamProvider.stop()` interrupts it), and `open()` clears the closed flag so the provider can be restarted. `StreamProvider` wraps it exactly as it would wrap a camera, so mirroring, frame-id assignment, and the rest of `StreamProvider`'s behaviour are unchanged. `HandStage` and `GestureClassifier` are constructed and started/stopped the normal way via `Pipeline`, wrapped around `demo.launch()`:
 
 ```python
 with Pipeline([provider, hands, gestures]):
@@ -34,7 +35,7 @@ with Pipeline([provider, hands, gestures]):
 
 Classification text drawn on the video (the original design) was hard to read over a moving image, so results are shown as a separate component instead, and the layout needs more than one input/output component — both push the demo onto `gr.Blocks` rather than `gr.Interface`. Top to bottom:
 
-1. **Three `gr.Slider`s in a `gr.Row`**, above the columns below — threshold (0–1, default `--threshold`), hand stage target fps and classifier target fps (defaults `--hand-fps`/`--classifier-fps`, both sharing one range, 1–`max(30, --hand-fps, --classifier-fps)`, so the two are visually and numerically comparable on the same scale). Each `.change()` handler writes straight to a mutable attribute the worker thread reads fresh every loop iteration — `gestures.threshold`, `hands.target_fps`, `gestures.target_fps` — so every one of them retunes the running pipeline live, no restart. (This is exactly [pipeline.md](pipeline.md)'s `Stage.target_fps`, a plain constructor param stored as `self.target_fps` and never cached — nothing pipeline-side had to change to make it live-adjustable.)
+1. **Three `gr.Slider`s in a `gr.Row`**, above the columns below — threshold (0–1, default `--threshold`), hand stage target fps and classifier target fps (defaults `--hand-fps`/`--classifier-fps`, both sharing one range, 1–`max(30, --hand-fps, --classifier-fps)`, so the two are visually and numerically comparable on the same scale). Each `.change()` handler writes straight to a mutable attribute the worker thread reads fresh every loop iteration — `gestures.threshold`, `hands.target_fps`, `gestures.target_fps` — so every one of them retunes the running pipeline live, no restart. (This is exactly [pipeline.md](pipeline.md)'s `Stage.target_fps`, a settable attribute the worker re-reads every iteration and never caches — nothing pipeline-side had to change to make it live-adjustable. It rejects non-positive values, which the sliders' floor of 1 never produces.)
    - The hand-fps slider only raises the *ceiling* `HandStage` computes against; it can't get more frames out of the browser than `stream_every` (fixed at launch, see below) delivers, so raising it past the launch value won't raise the achieved rate — the fps readout below shows the real, capped number either way.
 2. **Three columns in a `gr.Row`:**
    - **Input** — `gr.Image(sources=["webcam"], streaming=True)`, the raw browser feed, untouched.
@@ -63,7 +64,11 @@ The demo measures and displays the *actual* rate of each stage, right under the 
 
 ### Dependency
 
-`gradio` is a **dev-only `[dependency-groups]` entry** (`demo`, pulled into `dev`), not a `[project.optional-dependencies]` extra — no library consumer needs it to use `vision_modules`, only this repo's own example script does. See [project.md](project.md) ("Dev/example-only tooling").
+`gradio` is a **dev-only `[dependency-groups]` entry** (`demo`, pulled into `dev`), not a `[project.optional-dependencies]` extra — no library consumer needs it to use `vision_modules`, only this repo's own example script does. See [project.md](project.md) ("Dev/example-only tooling"). It is imported inside `main()`, not at module level, so the module's pure helpers can be imported and tested without paying for the gradio import.
+
+### Tests
+
+The demo is an application, so it has no live test of its own, but its pure pieces — `PushFrameSource`, `FpsMeter`, `summarize` — are unit-tested in `tests/test_hand_demo.py` (the `examples/` directory is on pytest's `pythonpath` and in pyright's scope, see [project.md](project.md)). The pipeline wiring it uses is covered end to end by `tests-e2e/test_hand_pipeline_live.py`.
 
 ## Open questions
 

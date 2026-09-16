@@ -46,7 +46,7 @@ GestureClassifier(hand_stage, target_fps: float | None = 5, threshold: float = 0
 ```
 
 - `Module[HandResult, Gesture]`. `process` classifies every hand's crop (one call per crop, no batching); an empty `HandResult` gives an empty, `present=False` result.
-- **Model loaded once**, lazily on the worker thread (a resource owned by that thread, per [pipeline.md](pipeline.md)).
+- **Model loaded once per run**, lazily on the worker thread (a resource owned by that thread, per [pipeline.md](pipeline.md)); `close()` releases it and the next run loads a fresh one. A `classifier` passed in is **borrowed** ([pipeline.md](pipeline.md) "Owned vs. borrowed backends"): never closed by the module, reused across restarts, closed by the caller.
 - **Device selection:** `"mps"` if available, else `"cuda"` if available, else `"cpu"` — a `select_device()` helper, overridable through `device`. The models here are small enough that CPU is a valid fallback and sidesteps MPS gaps (`PYTORCH_ENABLE_MPS_FALLBACK=1` is the user's escape hatch, never set by the library).
 
 ### `ImageClassifier` protocol — the seam
@@ -59,7 +59,7 @@ class ImageClassifier(Protocol):
 ```
 
 - **`HaGRIDViTClassifier`** is the shipped implementation: Hugging Face `dima806/hand_gestures_image_detection`, a ViT fine-tuned on HaGRID (18 classes; ~85.8M params; Apache-2.0; ~96% reported accuracy), loaded through the `transformers` image-classification pipeline and queried for every class (`top_k` set to the number of labels — the pipeline ignores `top_k=None` and would return only its default top 5). First run downloads ~340 MB (cached by HF afterwards). Converts BGR→RGB (PIL) before inference. Installed through the `hand` extra ([project.md](project.md)).
-- The protocol lets `tests/` drive the module with a scripted classifier (fixed score maps) — no weights, no network, per [testing.md](testing.md). The real model runs only in `tests-e2e/`, skipping when the model isn't available (via `require_env` or an equivalent guard).
+- The protocol lets `tests/` drive the module with a scripted classifier (fixed score maps) — no weights, no network, per [testing.md](testing.md). The real model runs only in `tests-e2e/`. Those tests need no credential, only network on the first run to download the weights; an offline first run **fails** rather than skips (the model tier is "network, not keys" — see [testing.md](testing.md)).
 
 ### Not in scope: temporal / video models
 

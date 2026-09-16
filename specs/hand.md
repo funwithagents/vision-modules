@@ -29,7 +29,7 @@ The shared hand front-end: one stage that finds the hands in each frame and cuts
 
 `HandResult(Result)` — frozen: `frame_id`, `ts`, `present`, plus:
 
-- `hands: tuple[Hand, ...]` — every hand found, in the detector's order (highest score first). Empty when none; `present == bool(hands)`.
+- `hands: tuple[Hand, ...]` — the hands found, **sorted by `score` descending and truncated to `max_hands`** by the stage itself (so the guarantee holds whatever order a detector returns). Empty when none; `present == bool(hands)`.
 - `first: Hand | None` — convenience: `hands[0]` or `None`.
 
 Multi-hand is therefore a shape decision made once: today `max_hands=1` and modules read `first`; raising `max_hands` later changes nothing in the contract.
@@ -46,7 +46,8 @@ HandStage(provider, target_fps: float | None = 30, pad: float = 0.35, max_hands:
 ```
 
 - `Stage[Frame, HandResult]`. Per new frame: run the detector once with the frame's `ts`; for every hand found, scale its normalized box to pixels, pad it by `pad` × box size on every side, clamp to the frame, copy the crop (or `None` for a degenerate box), build a `Hand`; publish a `HandResult` — also when no hand was found (`present=False`), so modules know the frame was seen and empty.
-- **Owns the only detector instance**, created and used on its worker thread only. MediaPipe objects are not thread-safe; no other thread may touch it.
+- **One detector, touched on the worker thread only.** With no `detector` given, the stage creates a `MediaPipeHandDetector` lazily on its worker thread (MediaPipe objects are not thread-safe; no other thread may touch it), closes it in `close()` and creates a fresh one on the next run. A `detector` passed in is **borrowed** ([pipeline.md](pipeline.md) "Owned vs. borrowed backends"): the stage never closes it, so it survives `stop()`/`start()` cycles and the caller closes it when done.
+- **Cache directory:** the downloaded model bundle lives under `~/.cache/vision-modules/`, overridable with the `VISION_MODULES_CACHE` environment variable (no `platformdirs` dependency); `model_path=` bypasses the cache entirely. Shared convention with [gesture_classifier.md](gesture_classifier.md).
 
 ### `HandDetector` protocol — the seam
 
@@ -74,5 +75,3 @@ DetectedHand: box (x0, y0, x1, y1) normalized to [0, 1], unpadded; score float
 
 1. **Exposing landmarks / handedness later.** A future geometry module (finger counting, pointing direction) would need MediaPipe's 21 landmarks and `"Left"` / `"Right"` label. Plan: add them as optional fields on `Hand` and widen `DetectedHand` when that module is specced; note MediaPipe labels handedness assuming a mirrored image, so [stream.md](stream.md)'s `mirror` option becomes relevant then. Deferred — out of v1.
 2. **Hand identity across frames.** Whether to give each `Hand` a stable `track_id` (nearest-bbox matching between frames) so a two-hand consumer can follow a hand over time. Deferrable — matters only once `max_hands > 1` is used in practice.
-3. **Cache directory convention.** Decided: `~/.cache/vision-modules/`, overridable with the `VISION_MODULES_CACHE` environment variable; no `platformdirs` dependency. Shared with [gesture_classifier.md](gesture_classifier.md).
-4. **Python 3.12 wheel availability** of `mediapipe` on macOS arm64 must be confirmed at plan time (it is a hard dependency of the `hand` extra).

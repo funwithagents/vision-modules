@@ -9,7 +9,6 @@ import threading
 import time
 
 import cv2
-import gradio as gr
 import numpy as np
 
 from vision_modules import (
@@ -24,12 +23,21 @@ from vision_modules import (
 
 
 class PushFrameSource:
-    """FrameSource fed by frames pushed from the Gradio streaming callback."""
+    """FrameSource fed by frames pushed from the Gradio streaming callback.
+
+    read() blocks until the next push; close() wakes it and makes it return None
+    (how StreamProvider.stop() interrupts it); open() clears the closed flag so
+    the provider can be restarted.
+    """
 
     def __init__(self) -> None:
         self._slot: LatestValue[np.ndarray] = LatestValue()
         self._new_frame = threading.Event()
+        self._closed = True  # until open()
+
+    def open(self) -> None:
         self._closed = False
+        self._new_frame.clear()
 
     def push(self, image_bgr: np.ndarray) -> None:
         self._slot.publish(image_bgr)
@@ -107,6 +115,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    import gradio as gr  # only here, so the helpers above import without gradio
+
     args = parse_args()
     print("Note: the gesture classifier model may download on first run.")
 

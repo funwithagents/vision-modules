@@ -23,13 +23,14 @@ Structure and tooling for the Vision Modules project itself: Python version, dep
 - **Dev/example-only tooling is a `[dependency-groups]` entry, never a package extra.** A dependency that no library consumer would ever install — because it belongs to something in this repo, not to the library ([hand_demo.md](hand_demo.md)'s `gradio`, for instance) — goes in its own named group under `[dependency-groups]` (PEP 735), pulled into `dev` with `{include-group = "…"}`. This keeps `pip install "vision-modules[...]"` free of dependencies no consumer asked for, while `uv sync --dev` still installs everything needed to run the repo's own scripts and tests.
 - **Linting/formatting:** `ruff`.
 - **Testing:** `pytest`, in two physically-separated tiers — a fast, deterministic, no-network default run (`tests/`, the only tier `testpaths` collects) and an opt-in live tier (`tests-e2e/`) that calls real external services. Full strategy is specced in [testing.md](testing.md).
-- **Type checking:** `pyright` (`standard` mode), a dev dependency run via `uv run pyright`. Config lives in `[tool.pyright]` in `pyproject.toml`, targeting `src`, `tests`, and `tests-e2e`, pinned to the `.venv`.
+- **Type checking:** `pyright` (`standard` mode), a dev dependency run via `uv run pyright`. Config lives in `[tool.pyright]` in `pyproject.toml`, targeting `src`, `tests`, `tests-e2e` and `examples` (the demo is spec-governed code and goes through the same gate), pinned to the `.venv`. `examples` is also on pyright's `extraPaths` and pytest's `pythonpath` so the fast tier can import the demo module's helpers.
 - **Repo shape:**
   - `src/vision_modules/` — the package, one module per core concept.
   - `specs/` — pre-implementation design docs, one per concept (this folder).
   - `plans/` — implementation plans turning settled specs into buildable steps.
   - `tests/` at repo root, mirroring the `src/vision_modules/` module structure.
   - `tests-e2e/` at repo root, for the live tier above — not collected by the default `pytest` run.
+  - `examples/` at repo root — runnable applications built on the library (not part of the package), type-checked with it.
 
 ## Open questions
 

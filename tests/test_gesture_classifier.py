@@ -1,7 +1,10 @@
+import threading
 import time
 
 import numpy as np
+import pytest
 
+import vision_modules.gesture_classifier as gc_module
 from vision_modules.gesture_classifier import (
     GestureClassifier,
     HandGesture,
@@ -207,7 +210,7 @@ def test_classifier_receives_the_crop_unchanged() -> None:
         gc.stop()
 
 
-def test_closes_classifier_on_stop() -> None:
+def test_never_closes_a_borrowed_classifier_and_reuses_it_on_restart() -> None:
     classifier = ScriptedClassifier({"palm": 1.0})
     crop = np.zeros((4, 4, 3), np.uint8)
     stage = FakeHandStage()
@@ -216,11 +219,54 @@ def test_closes_classifier_on_stop() -> None:
         stage, target_fps=None, threshold=0.55, classifier=classifier
     )
     gc.start()
+    wait_until(lambda: gc.latest() is not None)
+    gc.stop()
+    assert classifier.closed is False  # the caller owns it
+
+    stage.result = make_hand_result(2, [crop])
+    gc.start()
     try:
-        wait_until(lambda: gc.latest() is not None)
+        wait_until(lambda: gc.published_count == 2)
+        r = gc.latest()
+        assert r is not None and r.frame_id == 2
+        assert len(classifier.seen) == 2  # same instance served both runs
     finally:
         gc.stop()
-    assert classifier.closed is True
+    assert classifier.closed is False
+
+
+def test_owns_the_default_classifier_one_per_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeHaGRID(ScriptedClassifier):
+        def __init__(self, device: str) -> None:
+            super().__init__({"palm": 1.0})
+            self.device = device
+            self.created_on = threading.get_ident()
+            created.append(self)  # resolved at call time, defined just below
+
+    created: list[FakeHaGRID] = []
+
+    monkeypatch.setattr(gc_module, "HaGRIDViTClassifier", FakeHaGRID)
+    stage = FakeHandStage()
+    stage.result = make_hand_result(1, [np.zeros((4, 4, 3), np.uint8)])
+    gc = GestureClassifier(stage, target_fps=None, device="cpu")
+
+    gc.start()
+    wait_until(lambda: gc.latest() is not None)
+    gc.stop()
+    assert len(created) == 1
+    assert created[0].device == "cpu"  # explicit device passed straight through
+    assert created[0].created_on != threading.get_ident()  # loaded on the worker
+    assert created[0].closed is True  # released with the run
+
+    gc.start()
+    try:
+        wait_until(lambda: gc.published_count == 2)
+    finally:
+        gc.stop()
+    assert len(created) == 2 and created[1] is not created[0]
+    assert created[1].closed is True
 
 
 def test_select_device_honours_preference() -> None:

@@ -1,6 +1,8 @@
 """Vision Modules — modular perception over a video stream.
 
-Public re-exports land here as modules are built.
+Public API: everything a consumer needs to wire the shipped graph, write a
+custom stage (`Stage`/`Module`/`Upstream`/`Result`) or plug a custom backend
+(`FrameSource`, `HandDetector`/`DetectedHand`, `ImageClassifier`).
 """
 
 from vision_modules.gesture_classifier import (
@@ -12,16 +14,25 @@ from vision_modules.gesture_classifier import (
     select_device,
 )
 from vision_modules.hand import (
+    DetectedHand,
     Hand,
     HandDetector,
     HandResult,
     HandStage,
     MediaPipeHandDetector,
 )
-from vision_modules.pipeline import LatestValue, Module, Pipeline, Result, Stage
+from vision_modules.pipeline import (
+    LatestValue,
+    Module,
+    Pipeline,
+    Result,
+    Stage,
+    Upstream,
+)
 from vision_modules.stream import Frame, FrameSource, OpenCVSource, StreamProvider
 
 __all__ = [
+    "DetectedHand",
     "Frame",
     "FrameSource",
     "Gesture",
@@ -41,5 +52,6 @@ __all__ = [
     "Result",
     "Stage",
     "StreamProvider",
+    "Upstream",
     "select_device",
 ]

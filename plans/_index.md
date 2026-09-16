@@ -15,6 +15,7 @@ Implementation plans for Vision Modules — each plan turns a settled part of a 
 | [202609161540_gesture-classifier.md](202609161540_gesture-classifier.md) | `gesture_classifier.py`: `Gesture`, `GestureClassifier` module, HaGRID ViT backend, `select_device`, tests | Done |
 | [202609161550_hand-demo.md](202609161550_hand-demo.md) | Public re-exports in `__init__.py`, `examples/hand_demo.py` Gradio webcam demo, import-cost test | Done |
 | [202609171400_stage-published-count.md](202609171400_stage-published-count.md) | `Stage.published_count`: fixes the demo's fps meter, which was measuring upstream `frame_id` drift instead of the stage's own rate | Done |
+| [202609171600_restartable-nodes.md](202609171600_restartable-nodes.md) | Restartable nodes (`FrameSource.open()`, owned vs borrowed backends), `Pipeline.start()` rollback, stream close-then-join with a locked `OpenCVSource`, `target_fps` validation, public `DetectedHand`/`Upstream`, demo tests | Done |
 
 ## Status legend
 

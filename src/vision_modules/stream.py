@@ -23,23 +23,47 @@ class Frame:
 
 
 class FrameSource(Protocol):
+    """A frame supplier whose lifecycle the provider drives: open() on every
+    start(), close() on every stop(). close() may be called from another thread
+    while read() is blocked and must make that read() return."""
+
+    def open(self) -> None: ...
     def read(self) -> np.ndarray | None: ...
     def close(self) -> None: ...
 
 
 class OpenCVSource:
+    """cv2.VideoCapture behind the FrameSource protocol. read() and close() share
+    a lock because VideoCapture is not thread-safe: release() waits for an
+    in-flight read() (at most one frame period) instead of racing it."""
+
     def __init__(self, source: int | str) -> None:
-        self._cap = cv2.VideoCapture(source)
-        if not self._cap.isOpened():
-            self._cap.release()
-            raise RuntimeError(f"cannot open video source {source!r}")
+        self._source = source
+        self._cap: cv2.VideoCapture | None = None
+        self._lock = threading.Lock()
+
+    def open(self) -> None:
+        with self._lock:
+            if self._cap is not None:
+                return
+            cap = cv2.VideoCapture(self._source)
+            if not cap.isOpened():
+                cap.release()
+                raise RuntimeError(f"cannot open video source {self._source!r}")
+            self._cap = cap
 
     def read(self) -> np.ndarray | None:
-        ok, img = self._cap.read()
-        return img if ok else None
+        with self._lock:
+            if self._cap is None:
+                return None
+            ok, img = self._cap.read()
+            return img if ok else None
 
     def close(self) -> None:
-        self._cap.release()
+        with self._lock:
+            if self._cap is not None:
+                self._cap.release()
+                self._cap = None
 
 
 class StreamProvider:
@@ -56,12 +80,17 @@ class StreamProvider:
         self._ended = False
 
     def start(self) -> Self:
+        """Open the source and spawn the capture thread. No-op while running;
+        after stop() it re-opens the source and starts a fresh run."""
         if self._thread is not None:
             return self
-        if isinstance(self._source_arg, (int, str)):
-            self._source = OpenCVSource(self._source_arg)
-        else:
-            self._source = self._source_arg
+        if self._source is None:
+            if isinstance(self._source_arg, (int, str)):
+                self._source = OpenCVSource(self._source_arg)
+            else:
+                self._source = self._source_arg
+        self._source.open()
+        self._ended = False
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run, name="StreamProvider", daemon=True
@@ -83,7 +112,9 @@ class StreamProvider:
         assert self._source is not None
         # Closing before join is what unblocks a source whose read() is
         # currently blocked (e.g. waiting on the next frame): closing makes
-        # that call return, so the worker notices the stop and exits.
+        # that call return, so the worker notices the stop and exits. The
+        # FrameSource protocol requires close() to be safe to call while
+        # read() is in progress on the worker.
         self._source.close()
         self._thread.join()
         self._thread = None
@@ -104,7 +135,8 @@ class StreamProvider:
         while not self._stop_event.is_set():
             img = self._source.read()
             if img is None:
-                self._ended = True
+                if not self._stop_event.is_set():
+                    self._ended = True  # the source ran out; a stop() is not an end
                 break
             if self._mirror:
                 img = cv2.flip(img, 1)

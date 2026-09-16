@@ -18,8 +18,8 @@ is the job of the robot or agent consuming the results.
 | Concept | Public API | Role | Spec |
 |---|---|---|---|
 | Stream | `StreamProvider`, `Frame`, `FrameSource`, `OpenCVSource` | Single capture entry point: one thread reads a webcam, video file, URL, or injected source and publishes the newest frame | [specs/stream.md](specs/stream.md) |
-| Pipeline | `Stage`, `Module`, `Result`, `Pipeline`, `LatestValue` | Staged-graph runtime: latest-value sampling, per-node threads and framerates, ordered start/stop | [specs/pipeline.md](specs/pipeline.md) |
-| Hand | `HandStage`, `HandResult`, `Hand`, `HandDetector`, `MediaPipeHandDetector` | Shared stage: detects and crops hands **once per frame** for every hand-based module | [specs/hand.md](specs/hand.md) |
+| Pipeline | `Stage`, `Module`, `Result`, `Pipeline`, `LatestValue`, `Upstream` | Staged-graph runtime: latest-value sampling, per-node threads and framerates, ordered start/stop | [specs/pipeline.md](specs/pipeline.md) |
+| Hand | `HandStage`, `HandResult`, `Hand`, `HandDetector`, `DetectedHand`, `MediaPipeHandDetector` | Shared stage: detects and crops hands **once per frame** for every hand-based module | [specs/hand.md](specs/hand.md) |
 | Gesture classifier | `GestureClassifier`, `Gesture`, `HandGesture`, `ImageClassifier`, `HaGRIDViTClassifier`, `select_device` | Perception module: names the gesture in each hand crop (18 HaGRID classes) | [specs/gesture_classifier.md](specs/gesture_classifier.md) |
 | Hand demo | `examples/hand_demo.py` | Runnable Gradio browser app wiring the whole graph end to end | [specs/hand_demo.md](specs/hand_demo.md) |
 
@@ -54,6 +54,12 @@ Key rules every node obeys:
 - **Threads, not processes.** OpenCV, NumPy, MediaPipe and PyTorch release the GIL during
   native work. Non-thread-safe resources (a MediaPipe instance, a loaded model) are created
   lazily on the worker thread and touched only there.
+- **Every node is restartable.** `stop()` then `start()` runs a fresh worker; `latest()` and
+  the counters carry over. `Pipeline.start()` is all-or-nothing: if a node fails to start, the
+  ones already started are stopped again before the error propagates.
+- **Owned vs. borrowed backends.** A stage closes and recreates the detector or classifier it
+  created itself. One you pass in (`detector=`, `classifier=`) is borrowed: never closed by the
+  stage, reused across restarts, yours to close.
 
 ## Installation
 
@@ -79,7 +85,7 @@ import time
 
 from vision_modules import GestureClassifier, HandStage, Pipeline, StreamProvider
 
-provider = StreamProvider(0, mirror=True)   # webcam index 0, selfie view
+provider = StreamProvider(0, mirror=True)  # webcam index 0, selfie view
 hands = HandStage(provider, target_fps=30)  # detect + crop once per frame
 gestures = GestureClassifier(hands, target_fps=5, threshold=0.55)
 
@@ -109,10 +115,10 @@ pushed from elsewhere. `provider.ended` turns `True` when a file source runs out
 
 ```
 StreamProvider(source: int | str | FrameSource = 0, *, mirror: bool = False)
-  .start() -> StreamProvider   # opens the source, spawns the capture thread; idempotent
+  .start() -> StreamProvider   # opens the source, spawns the capture thread; restartable
   .latest() -> Frame | None    # newest frame, or None before the first read
-  .ended -> bool               # True once the source reported no more frames
-  .stop() -> None              # stops and joins the thread, then closes the source
+  .ended -> bool               # True once the source ran out on its own (not after stop())
+  .stop() -> None              # signals the thread, closes the source, joins the thread
   # also a context manager
 ```
 
@@ -124,9 +130,15 @@ convention; consumers convert as needed and get a new array.
 
 ```python
 class FrameSource(Protocol):
-    def read(self) -> np.ndarray | None: ...   # next BGR image, or None when exhausted
-    def close(self) -> None: ...
+    def open(self) -> None: ...  # called by start(); a restart re-opens
+    def read(self) -> np.ndarray | None: ...  # next BGR image, or None when exhausted
+    def close(self) -> None: ...  # called by stop(); must unblock a pending read()
 ```
+
+The provider drives the source's lifecycle: `open()` on every `start()`, `close()` on every
+`stop()`. `close()` is called while the capture thread may be inside `read()`, which is what
+interrupts a read waiting on a frame that never comes, so a source must tolerate that
+(`OpenCVSource` serializes the two with a lock).
 
 ### Pipeline
 
@@ -135,7 +147,7 @@ Stage[TIn, TOut](upstream, target_fps: float | None, name: str | None = None)
   .start() / .stop() / .latest()
   .process(item) -> TOut | None   # subclass hook, runs on the worker thread only
   .close()                        # subclass hook, releases owned resources
-  .target_fps                     # plain attribute, can be changed while running
+  .target_fps                     # settable while running; None or > 0, else ValueError
   .published_count                # exact number of publishes so far
   .last_error                     # last exception raised by process(), if any
 
@@ -222,7 +234,7 @@ class HandHeightModule(Module[HandResult, HandHeight]):
 
 Add it to the `Pipeline` list after its upstream and read it with `latest()` like any other
 node. Heavy resources go in a lazily-initialized attribute used only inside `process()`, and
-are released in `close()`.
+are released and dropped in `close()` so a restarted run creates its own.
 
 ## Models and caches
 
@@ -271,7 +283,7 @@ uv run pytest
 ```
 
 Lint, type check, and tests must all pass before a change is done. `pyright` covers the tests
-too.
+and `examples/` too.
 
 ### Tests
 
@@ -283,7 +295,9 @@ Two tiers, separated by directory:
 | Live / e2e | `tests-e2e/` | real models and devices | no |
 
 `tests/` mirrors the `src/vision_modules/` layout and drives every stage through its seam
-with scripted sources, detectors and classifiers, so no camera, model, or network is needed.
+with scripted sources, detectors and classifiers, so no camera, model, or network is needed
+(the one `OpenCVSource` test reads a clip it wrote itself). The demo's pure helpers are tested
+in `tests/test_hand_demo.py`.
 `tests/test_project_map.py` guards the docs: every module must appear in the AGENTS.md project
 map and be governed by a spec whose frontmatter paths exist.
 
@@ -295,7 +309,8 @@ predicts the photographed gesture:
 uv run pytest tests-e2e
 ```
 
-Tests that lack what they need skip instead of failing. Environment variables:
+Tests gated on a credential skip instead of failing; the model-backed tests need network on
+their first run to download weights and fail if that download fails. Environment variables:
 
 - `VISION_MODULES_CAMERA`: camera index for the webcam capture test (required for it; never
   guessed, because opening an unavailable camera can crash the process natively)

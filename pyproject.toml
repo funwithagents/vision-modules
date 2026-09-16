@@ -44,9 +44,11 @@ target-version = "py312"  # keep in sync with requires-python
 [tool.pytest.ini_options]
 # Only the fast, deterministic tier is collected by default; tests-e2e/ is opt-in.
 testpaths = ["tests"]
+pythonpath = ["examples"]  # so tests/test_hand_demo.py can import the demo's helpers
 
 [tool.pyright]
-include = ["src", "tests", "tests-e2e"]  # type-check test code too, not just src
+include = ["src", "tests", "tests-e2e", "examples"]  # type-check tests and the demo too, not just src
+extraPaths = ["examples"]  # resolve `import hand_demo` from tests/
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"

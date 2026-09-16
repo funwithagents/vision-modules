@@ -1,7 +1,10 @@
+import threading
 import time
 
 import numpy as np
+import pytest
 
+import vision_modules.hand as hand_module
 from vision_modules.hand import DetectedHand, HandStage, padded_box
 from vision_modules.stream import Frame
 
@@ -167,17 +170,60 @@ def test_stage_gives_none_crop_for_zero_area_box() -> None:
         stage.stop()
 
 
-def test_stage_closes_detector_on_stop() -> None:
+def test_stage_never_closes_a_borrowed_detector_and_reuses_it_on_restart() -> None:
     detector = ScriptedDetector(())
     provider = FakeProvider()
     provider.frame = make_frame(1)
     stage = HandStage(provider, target_fps=None, detector=detector)
     stage.start()
+    wait_until(lambda: stage.latest() is not None)
+    stage.stop()
+    assert detector.closed is False  # the caller owns it
+
+    provider.frame = make_frame(2)
+    stage.start()
     try:
-        wait_until(lambda: stage.latest() is not None)
+        wait_until(lambda: stage.published_count == 2)
+        r = stage.latest()
+        assert r is not None and r.frame_id == 2
+        assert detector.calls == [1.0, 2.0]  # same instance served both runs
     finally:
         stage.stop()
-    assert detector.closed is True
+    assert detector.closed is False
+
+
+def test_stage_owns_the_default_detector_one_per_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeMediaPipe(ScriptedDetector):
+        def __init__(self, num_hands: int) -> None:
+            super().__init__(())
+            self.num_hands = num_hands
+            self.created_on = threading.get_ident()
+            created.append(self)  # resolved at call time, defined just below
+
+    created: list[FakeMediaPipe] = []
+
+    monkeypatch.setattr(hand_module, "MediaPipeHandDetector", FakeMediaPipe)
+    provider = FakeProvider()
+    provider.frame = make_frame(1)
+    stage = HandStage(provider, target_fps=None, max_hands=2)
+
+    stage.start()
+    wait_until(lambda: stage.latest() is not None)
+    stage.stop()
+    assert len(created) == 1
+    assert created[0].num_hands == 2
+    assert created[0].created_on != threading.get_ident()  # built on the worker
+    assert created[0].closed is True  # released with the run
+
+    stage.start()
+    try:
+        wait_until(lambda: stage.published_count == 2)
+    finally:
+        stage.stop()
+    assert len(created) == 2 and created[1] is not created[0]
+    assert created[1].closed is True
 
 
 def test_stage_processes_each_frame_once() -> None:

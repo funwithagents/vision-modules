@@ -259,6 +259,64 @@ def test_context_manager_starts_and_stops() -> None:
     assert not any(t.name == "ctx-stage" for t in threading.enumerate())
 
 
+def test_stage_restarts_after_stop_as_a_fresh_run() -> None:
+    upstream = FakeUpstream()
+    upstream.item = Item(1)
+    st = RecordingStage(upstream, target_fps=None, name="restart-stage")
+    st.start()
+    wait_until(lambda: st.published_count == 1)
+    st.stop()
+    first_close = st.closed_on
+    assert first_close is not None
+    assert not any(t.name == "restart-stage" for t in threading.enumerate())
+
+    st.closed_on = None
+    st.start()
+    try:
+        # The new run has no stale-skip memory: the upstream's current item is
+        # processed once more, and the counter carries over from the first run.
+        wait_until(lambda: st.published_count == 2)
+        time.sleep(0.05)
+        assert st.seen == [Item(1), Item(1)]
+        upstream.item = Item(2)
+        wait_until(lambda: st.published_count == 3)
+        result = st.latest()
+        assert result is not None
+        assert result.frame_id == 2
+    finally:
+        st.stop()
+    assert st.closed_on is not None  # close() ran again as the second run exited
+    assert not any(t.name == "restart-stage" for t in threading.enumerate())
+
+
+def test_target_fps_rejects_non_positive_values() -> None:
+    upstream = FakeUpstream()
+    with pytest.raises(ValueError):
+        RecordingStage(upstream, target_fps=0)
+    st = RecordingStage(upstream, target_fps=10)
+    with pytest.raises(ValueError):
+        st.target_fps = -1
+    assert st.target_fps == 10  # the bad assignment changed nothing
+    st.target_fps = None
+    assert st.target_fps is None
+
+
+def test_target_fps_can_be_lowered_while_running() -> None:
+    upstream = IncrementingUpstream()
+    st = RecordingStage(upstream, target_fps=None)
+    st.start()
+    try:
+        wait_until(lambda: len(st.seen) >= 20)
+        st.target_fps = 10
+        time.sleep(0.05)  # let the in-flight iteration drain
+        before = len(st.seen)
+        time.sleep(0.5)
+        processed = len(st.seen) - before
+    finally:
+        st.stop()
+    assert 2 <= processed <= 8  # ~10 fps over 0.5 s, nowhere near the unpaced rate
+
+
 # --- Pipeline --------------------------------------------------------------------
 
 
@@ -281,6 +339,12 @@ class RaisingNode(RecordingNode):
         raise RuntimeError("boom")
 
 
+class FailingStartNode(RecordingNode):
+    def start(self) -> "RecordingNode":
+        self._events.append(("start", self._index))
+        raise RuntimeError("cannot open")
+
+
 def test_pipeline_starts_in_order_and_stops_in_reverse() -> None:
     events: list[tuple[str, int]] = []
     nodes = [RecordingNode(i, events) for i in range(3)]
@@ -295,6 +359,33 @@ def test_pipeline_starts_in_order_and_stops_in_reverse() -> None:
         ("stop", 1),
         ("stop", 0),
     ]
+
+
+def test_pipeline_start_rolls_back_started_nodes_when_a_later_start_fails() -> None:
+    events: list[tuple[str, int]] = []
+    nodes = [
+        RecordingNode(0, events),
+        RecordingNode(1, events),
+        FailingStartNode(2, events),
+        RecordingNode(3, events),
+    ]
+    with pytest.raises(RuntimeError, match="cannot open"):
+        Pipeline(nodes).start()
+    assert events == [
+        ("start", 0),
+        ("start", 1),
+        ("start", 2),
+        ("stop", 1),
+        ("stop", 0),
+    ]
+
+
+def test_pipeline_with_block_leaves_no_worker_running_when_start_fails() -> None:
+    upstream = FakeUpstream()
+    st = RecordingStage(upstream, target_fps=None, name="leak-stage")
+    with pytest.raises(RuntimeError), Pipeline([st, FailingStartNode(1, [])]):
+        pass  # never reached
+    assert not any(t.name == "leak-stage" for t in threading.enumerate())
 
 
 def test_pipeline_stops_remaining_nodes_when_one_stop_raises() -> None:

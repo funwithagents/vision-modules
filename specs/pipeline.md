@@ -21,7 +21,7 @@ The runtime itself is graph-agnostic — `pipeline.py` knows nothing about hands
 
 ```
 StreamProvider                 (root: capture thread, publishes the latest Frame)
-  └─ HandStage                 (shared stage: detect + crop + landmarks ONCE per frame)
+  └─ HandStage                 (shared stage: detect + crop ONCE per frame)
        └─ GestureClassifier    (module, own framerate)
             (add more modules here, e.g. a FaceStage alongside HandStage, or another
              module reading HandStage/GestureClassifier's latest())
@@ -41,14 +41,15 @@ StreamProvider                 (root: capture thread, publishes the latest Frame
 
 ```
 Stage[TIn, TOut](upstream, target_fps: float | None, name: str | None = None)
-  .start() -> Stage       # spawns the worker thread; idempotent
-  .stop() -> None         # signals, joins the thread, then close(); idempotent
+  .start() -> Stage       # spawns the worker thread; idempotent while running; restartable after stop()
+  .stop() -> None         # signals and joins the thread (close() runs on the worker as it exits); idempotent
   .latest() -> TOut | None
   .process(item: TIn) -> TOut | None   # subclass hook; runs on the worker thread only
-  .close() -> None                     # subclass hook; release owned resources
+  .close() -> None                     # subclass hook; release owned resources, runs once per run
   .name: str              # defaults to the class name; for display / logging
+  .target_fps: float | None   # settable while running; None = as fast as upstream; must be > 0
   .last_error: BaseException | None
-  .published_count: int   # how many times this stage has actually published, ever
+  .published_count: int   # how many times this stage has actually published, ever (across restarts)
 ```
 
 Worker loop: `item = upstream.latest()`; if `item` is `None` or its `frame_id` equals the last processed one, wait; else `out = self.process(item)`, publish `out` when not `None` and increment `published_count`, record the `frame_id`; then sleep so iterations respect `target_fps` (`None` = as fast as upstream delivers). Timing uses `time.monotonic()`.
@@ -56,6 +57,8 @@ Worker loop: `item = upstream.latest()`; if `item` is `None` or its `frame_id` e
 - A stage's **effective rate is capped by its upstream's**: it can't publish fresher than it's fed. Set `target_fps` at or above the upstream's to see every item; lower it to deliberately down-sample.
 - **`published_count` measures this stage's own real throughput; `frame_id` does not.** `frame_id` is inherited from the originating `Frame` and only reflects *whose* item was processed, not *how many* items this stage has processed — a down-sampled stage's published `frame_id` jumps ahead by however far the upstream advanced between two of *this* stage's cycles, so `Δframe_id / Δt` measures the upstream's rate, not this stage's own. `published_count` increments exactly once per successful `process()`+publish and nothing else, so `Δpublished_count / Δt` between any two samples (however far apart) is this stage's exact achieved rate — this is the only reliable way for a caller to check a stage's real fps against its `target_fps`.
 - **Owned resources live on the worker thread.** Anything non-thread-safe a stage holds (a MediaPipe instance, a loaded model) is created lazily in the worker and touched only there. `close()` runs on the worker as it exits.
+- **Owned vs. borrowed backends.** A stage that accepts an injected backend (`HandStage(detector=…)`, `GestureClassifier(classifier=…)`) treats it as **borrowed**: it uses it but never closes it — the caller created it, keeps it open across restarts, and closes it when done. A backend the stage created itself (the default MediaPipe detector, the default HaGRID classifier) is **owned**: `close()` releases it and drops the reference, so the next run creates a fresh one. This is what lets a stage be restarted with either kind of backend.
+- **`target_fps` is validated.** It is a settable attribute (the demo retunes it live) but the worker divides by it, so a non-positive value is rejected with `ValueError` at construction and on assignment rather than killing the worker thread silently. `None` stays the "as fast as upstream" value.
 - **Errors in `process` don't kill the graph.** The exception is recorded in `last_error` and logged; the loop continues with the next item (see open question 1).
 
 ### `Module` — the uniform perception interface
@@ -70,6 +73,8 @@ A **module** is a `Stage` whose output is a perception `Result` a robot / agent 
 
 - Start upstream-first (provider → shared stage → modules) so nothing samples a node that isn't running; stop **downstream-first** (modules → shared stage → provider) so a node is never left reading from a closed upstream. A `Pipeline` helper owning an ordered list of nodes and doing this is in scope (`Pipeline(nodes).start() / .stop()`, context manager).
 - `stop()` is bounded: worker loops check a stop event each iteration, so `stop()` returns within roughly one `target_fps` period plus one `process` call. Threads are joined, never abandoned.
+- **Every node is restartable.** `start()` after `stop()` spawns a fresh worker: the stale-skip memory is per run (so a restarted stage treats the upstream's current value as new and processes it once), `close()` has already released the owned backend so the new run creates its own, and `latest()`, `published_count` and `last_error` carry over from the previous run. `StreamProvider` follows the same rule by re-opening its source ([stream.md](stream.md)). A `Pipeline` can therefore be started and stopped any number of times.
+- **`Pipeline.start()` is all-or-nothing.** If a node's `start()` raises (an unopenable camera, say), the nodes already started are stopped again in reverse order and the original exception propagates — no half-started graph is left running behind a failed `with Pipeline(...)`. `Pipeline.stop()` stops every node even if one of them raises, then re-raises the first error.
 
 ### Concurrency rules (requirements)
 

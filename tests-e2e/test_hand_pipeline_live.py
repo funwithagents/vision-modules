@@ -26,6 +26,9 @@ class StaticImageSource:
     def __init__(self, image: np.ndarray) -> None:
         self._image = image
 
+    def open(self) -> None:
+        pass
+
     def read(self) -> np.ndarray | None:
         time.sleep(1 / 30)
         return self._image

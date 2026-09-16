@@ -27,31 +27,35 @@ The single entry point for video into the library. A `StreamProvider` owns one c
 
 ```
 StreamProvider(source: int | str | FrameSource = 0, *, mirror: bool = False)
-  .start() -> StreamProvider       # opens the source, spawns the capture thread; idempotent
+  .start() -> StreamProvider       # opens the source, spawns the capture thread; idempotent while running; restartable after stop()
   .latest() -> Frame | None        # newest frame, or None before the first read
-  .ended -> bool                   # True once the source reported no more frames
-  .stop() -> None                  # stops the thread, joins it, closes the source; idempotent
+  .ended -> bool                   # True once the source reported no more frames on its own
+  .stop() -> None                  # signals the thread, closes the source, joins the thread; idempotent
   # context manager: `with StreamProvider(0) as sp:` == start() / stop()
 ```
 
-- `source` is an `int` (OpenCV camera index), a `str` (file path / URL, opened through OpenCV), or any object satisfying the `FrameSource` protocol. `int` / `str` are wrapped in the built-in `OpenCVSource`. The device is opened in `start()`, not in the constructor, so constructing a provider has no side effects.
+- `source` is an `int` (OpenCV camera index), a `str` (file path / URL, opened through OpenCV), or any object satisfying the `FrameSource` protocol. `int` / `str` are wrapped in the built-in `OpenCVSource`. The device is opened in `start()` (via `source.open()`), not in the constructor, so constructing a provider has no side effects; an unopenable device raises `RuntimeError` from `start()`.
 - `mirror=True` flips every frame horizontally (`cv2.flip(img, 1)`, a new array) before publishing — the "selfie view" a webcam user expects. It is applied once here so every consumer (and the demo's display) sees the same orientation.
 - `FrameSource` protocol — the seam that keeps the capture loop testable without a camera:
 
   ```
   class FrameSource(Protocol):
-      def read(self) -> np.ndarray | None: ...   # next BGR image, or None when exhausted / failed
-      def close(self) -> None: ...
+      def open(self) -> None: ...                # acquire the device; called by start(), so a restart re-opens
+      def read(self) -> np.ndarray | None: ...   # next BGR image, or None when exhausted / failed / closed
+      def close(self) -> None: ...               # release; may be called from another thread while read() is blocked, and must make that read() return
   ```
 
-  A test injects a source that yields synthetic arrays; the default `tests/` tier never opens a real device (see [testing.md](testing.md)). Only the `tests-e2e/` tier touches OpenCV capture.
+  The provider drives the source's whole lifecycle: `open()` on every `start()`, `close()` on every `stop()`. A source therefore has to survive a close → open cycle to be restartable (`OpenCVSource` re-creates its `VideoCapture`; the demo's push source resets its closed flag). `close()` is also the provider's only way to interrupt a `read()` that is waiting for a frame that will never come, which is why the protocol requires it to be callable concurrently with `read()` and to unblock it.
+
+  A test injects a source that yields synthetic arrays; the default `tests/` tier never opens a real camera (see [testing.md](testing.md)) — the one `OpenCVSource` test in that tier reads a video file it generated itself. Only the `tests-e2e/` tier touches a camera.
 
 ### Capture loop contract
 
 - **Single reader.** Only the provider's thread calls `source.read()`. No other code reads the device.
 - Per iteration: `read()` → under the lock, rebind the published `Frame` (new `frame_id`, new `ts`, new `image`). The lock only guarantees a consistent `(frame_id, ts, image)` triple; it is never held during the read.
-- `read()` returning `None` (end of file, camera unplugged) ends the loop: the last `Frame` stays available from `latest()`, and `ended` becomes `True`, so consumers can tell "no new frame yet" from "no more frames ever".
-- `stop()` sets a stop event, **joins the thread without a timeout** (a read blocks for at most one frame), and only then closes the source — never release a device a thread may still be reading.
+- `read()` returning `None` (end of file, camera unplugged) ends the loop: the last `Frame` stays available from `latest()`, and `ended` becomes `True`, so consumers can tell "no new frame yet" from "no more frames ever". A `None` caused by `stop()` closing the source does **not** set `ended` — the stream was interrupted, it did not run out — so `ended` stays an honest end-of-source signal across stop/start cycles.
+- `stop()` sets the stop event, **closes the source, then joins the thread without a timeout**. Closing first is what makes a `read()` blocked on the next frame return, so the worker can notice the stop event; joining first would deadlock on any source that only yields when fed (the demo's browser-pushed frames, the tests' stepped source). The cost is that `close()` can run while the worker is inside `read()`, which the protocol therefore requires every source to tolerate. `OpenCVSource` does so with a lock around `read()` and `close()`: `cv2.VideoCapture` is not thread-safe, so `release()` waits for the in-flight `read()` (bounded by one frame period on a camera, immediate on a file) instead of racing it.
+- **Restart.** `start()` after `stop()` calls `source.open()` again, clears `ended`, and spawns a fresh capture thread. `frame_id` keeps counting from where it left off (still monotonic per provider, so results from the earlier run can never be confused with new ones) and `latest()` keeps the last frame until a new one arrives. A file source re-opened this way replays from the beginning.
 
 ### Frame ownership (subtle — get right)
 

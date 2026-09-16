@@ -78,16 +78,21 @@ class HandStage(Stage[Frame, HandResult]):
         super().__init__(provider, target_fps)
         self.pad = pad
         self.max_hands = max_hands
-        self._given = detector
-        self._detector: HandDetector | None = None
+        self._borrowed = detector  # caller's: used, never closed here
+        self._owned: HandDetector | None = (
+            None  # ours: created per run, closed in close()
+        )
+
+    def _detector(self) -> HandDetector:
+        if self._borrowed is not None:
+            return self._borrowed
+        if self._owned is None:
+            self._owned = MediaPipeHandDetector(num_hands=self.max_hands)
+        return self._owned
 
     def process(self, item: Frame) -> HandResult:
         frame = item
-        if self._detector is None:
-            self._detector = self._given or MediaPipeHandDetector(
-                num_hands=self.max_hands
-            )
-        found = self._detector.detect(frame.image, frame.ts)
+        found = self._detector().detect(frame.image, frame.ts)
         found = tuple(sorted(found, key=lambda d: d.score, reverse=True))[
             : self.max_hands
         ]
@@ -102,8 +107,9 @@ class HandStage(Stage[Frame, HandResult]):
         )
 
     def close(self) -> None:
-        if self._detector is not None:
-            self._detector.close()
+        if self._owned is not None:
+            self._owned.close()
+            self._owned = None  # a restarted run creates a fresh one
 
 
 def default_model_path() -> Path:

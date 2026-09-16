@@ -62,22 +62,28 @@ class GestureClassifier(Module[HandResult, Gesture]):
     ) -> None:
         super().__init__(hand_stage, target_fps)
         self.threshold = threshold
-        self._given = classifier
+        self._borrowed = classifier  # caller's: used, never closed here
         self._device = device
-        self._clf: ImageClassifier | None = None
+        self._owned: ImageClassifier | None = (
+            None  # ours: loaded per run, closed in close()
+        )
+
+    def _classifier(self) -> ImageClassifier:
+        if self._borrowed is not None:
+            return self._borrowed
+        if self._owned is None:
+            self._owned = HaGRIDViTClassifier(device=select_device(self._device))
+        return self._owned
 
     def process(self, item: HandResult) -> Gesture:
         hands = item
-        if self._clf is None:
-            self._clf = self._given or HaGRIDViTClassifier(
-                device=select_device(self._device)
-            )
+        clf = self._classifier()
         out: list[HandGesture] = []
         for hand in hands.hands:
             if hand.crop is None:
                 out.append(HandGesture(None, 0.0, {}))
                 continue
-            scores = self._clf.classify(hand.crop)
+            scores = clf.classify(hand.crop)
             label, conf = max(scores.items(), key=lambda kv: kv[1])
             out.append(
                 HandGesture(label if conf >= self.threshold else None, conf, scores)
@@ -85,8 +91,9 @@ class GestureClassifier(Module[HandResult, Gesture]):
         return Gesture(hands.frame_id, hands.ts, present=bool(out), hands=tuple(out))
 
     def close(self) -> None:
-        if self._clf is not None:
-            self._clf.close()
+        if self._owned is not None:
+            self._owned.close()
+            self._owned = None  # a restarted run loads a fresh one
 
 
 class HaGRIDViTClassifier:
