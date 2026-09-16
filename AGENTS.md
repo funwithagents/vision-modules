@@ -15,6 +15,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | `plans/` | Implementation plans turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
 | `tests/` | Fast, deterministic, no-network tests; mirrors the `src/vision_modules/` module structure |
 | `tests-e2e/` | Opt-in live tests that call real external services (not collected by default `pytest`) |
+| `examples/` | Runnable application scripts that wire library modules together (not part of the package; `examples/hand_demo.py` is the webcam gesture demo) |
 
 ### `src/vision_modules/` modules
 

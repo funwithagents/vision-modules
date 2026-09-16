@@ -56,6 +56,7 @@ class Stage[TIn: HasFrameId, TOut: HasFrameId]:
         self.target_fps = target_fps
         self.name = name if name is not None else type(self).__name__
         self.last_error: BaseException | None = None
+        self.published_count = 0
         self._slot: LatestValue[TOut] = LatestValue()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -111,6 +112,7 @@ class Stage[TIn: HasFrameId, TOut: HasFrameId]:
                 else:
                     if out is not None:
                         self._slot.publish(out)
+                        self.published_count += 1
             # pacing
             if self.target_fps is None:
                 self._stop_event.wait(0.001)  # tiny idle sleep; never busy-spin

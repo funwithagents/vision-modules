@@ -21,3 +21,14 @@ uv run ruff check .
 uv run pyright
 uv run pytest
 ```
+
+## Try it
+
+A browser demo (Gradio) runs the hand stage and gesture classifier live over your webcam:
+
+```
+uv run python examples/hand_demo.py --mirror
+```
+
+Open the printed URL and grant the browser camera access. Requires the `demo` dependency
+group (included in `uv sync --dev`).

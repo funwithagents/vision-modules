@@ -5,7 +5,14 @@ from dataclasses import dataclass
 
 import pytest
 
-from vision_modules.pipeline import LatestValue, Module, Pipeline, Result, Stage
+from vision_modules.pipeline import (
+    LatestValue,
+    Module,
+    Pipeline,
+    Result,
+    Stage,
+    Upstream,
+)
 
 # --- Test helpers ------------------------------------------------------------
 
@@ -35,10 +42,24 @@ class IncrementingUpstream:
         return item
 
 
+class ClockDrivenUpstream:
+    """frame_id advances on wall-clock time, independent of how often latest()
+    is polled — simulates a real producer (e.g. a camera thread) that keeps
+    running regardless of how fast a downstream consumer samples it.
+    """
+
+    def __init__(self, fps: float) -> None:
+        self._fps = fps
+        self._start = time.monotonic()
+
+    def latest(self) -> Item:
+        return Item(int((time.monotonic() - self._start) * self._fps))
+
+
 class RecordingStage(Stage[Item, Result]):
     def __init__(
         self,
-        upstream: FakeUpstream | IncrementingUpstream,
+        upstream: Upstream[Item],
         target_fps: float | None,
         name: str | None = None,
     ) -> None:
@@ -140,6 +161,39 @@ def test_stage_target_fps_bounds_the_rate() -> None:
     assert 5 <= len(st.seen) <= 15
 
 
+def test_published_count_increments_once_per_publish() -> None:
+    upstream = FakeUpstream()
+    upstream.item = Item(1)
+    st = RecordingStage(upstream, target_fps=None)
+    st.start()
+    try:
+        wait_until(lambda: st.published_count == 1)
+        upstream.item = Item(2)
+        wait_until(lambda: st.published_count == 2)
+    finally:
+        st.stop()
+    assert st.published_count == len(st.seen) == 2
+
+
+def test_published_count_reflects_this_stages_rate_not_upstream_frame_id() -> None:
+    """A downsampled stage's frame_id can jump far ahead of how many times it
+    actually ran — published_count is the only thing that tracks the latter.
+    """
+    upstream = ClockDrivenUpstream(fps=100)  # far faster than this stage's target
+    st = RecordingStage(upstream, target_fps=10)
+    st.start()
+    try:
+        time.sleep(0.5)
+    finally:
+        st.stop()
+    last = st.latest()
+    assert last is not None
+    assert (
+        last.frame_id > st.published_count
+    )  # upstream ran far faster than we published
+    assert 2 <= st.published_count <= 8  # roughly this stage's own ~10fps cap over 0.5s
+
+
 def test_process_returning_none_publishes_nothing() -> None:
     upstream = FakeUpstream()
     upstream.item = Item(1)
@@ -148,6 +202,7 @@ def test_process_returning_none_publishes_nothing() -> None:
     try:
         wait_until(lambda: st.seen)
         assert st.latest() is None
+        assert st.published_count == 0
     finally:
         st.stop()
 

@@ -17,11 +17,14 @@ The runtime that lets several perception modules run at different framerates off
 
 ### Shape of the graph
 
+The runtime itself is graph-agnostic — `pipeline.py` knows nothing about hands, streams, or gestures; it only knows `Stage`/`Module`/`Pipeline`. Application code wires concrete nodes into whatever tree it needs, and a `Stage` can feed more than one downstream consumer. Today's example instantiation (built in `examples/hand_demo.py`, see [hand_demo.md](hand_demo.md)) is:
+
 ```
 StreamProvider                 (root: capture thread, publishes the latest Frame)
   └─ HandStage                 (shared stage: detect + crop + landmarks ONCE per frame)
        └─ GestureClassifier    (module, own framerate)
-            (add more modules here)
+            (add more modules here, e.g. a FaceStage alongside HandStage, or another
+             module reading HandStage/GestureClassifier's latest())
 ```
 
 - Shared work is done once, in a shared stage, and fanned out. Modules never re-run upstream work (never their own hand detection, for instance). This replaces the rejected "one independent pipeline per module" shape, which duplicated detection.
@@ -45,11 +48,13 @@ Stage[TIn, TOut](upstream, target_fps: float | None, name: str | None = None)
   .close() -> None                     # subclass hook; release owned resources
   .name: str              # defaults to the class name; for display / logging
   .last_error: BaseException | None
+  .published_count: int   # how many times this stage has actually published, ever
 ```
 
-Worker loop: `item = upstream.latest()`; if `item` is `None` or its `frame_id` equals the last processed one, wait; else `out = self.process(item)`, publish `out` when not `None`, record the `frame_id`; then sleep so iterations respect `target_fps` (`None` = as fast as upstream delivers). Timing uses `time.monotonic()`.
+Worker loop: `item = upstream.latest()`; if `item` is `None` or its `frame_id` equals the last processed one, wait; else `out = self.process(item)`, publish `out` when not `None` and increment `published_count`, record the `frame_id`; then sleep so iterations respect `target_fps` (`None` = as fast as upstream delivers). Timing uses `time.monotonic()`.
 
 - A stage's **effective rate is capped by its upstream's**: it can't publish fresher than it's fed. Set `target_fps` at or above the upstream's to see every item; lower it to deliberately down-sample.
+- **`published_count` measures this stage's own real throughput; `frame_id` does not.** `frame_id` is inherited from the originating `Frame` and only reflects *whose* item was processed, not *how many* items this stage has processed — a down-sampled stage's published `frame_id` jumps ahead by however far the upstream advanced between two of *this* stage's cycles, so `Δframe_id / Δt` measures the upstream's rate, not this stage's own. `published_count` increments exactly once per successful `process()`+publish and nothing else, so `Δpublished_count / Δt` between any two samples (however far apart) is this stage's exact achieved rate — this is the only reliable way for a caller to check a stage's real fps against its `target_fps`.
 - **Owned resources live on the worker thread.** Anything non-thread-safe a stage holds (a MediaPipe instance, a loaded model) is created lazily in the worker and touched only there. `close()` runs on the worker as it exits.
 - **Errors in `process` don't kill the graph.** The exception is recorded in `last_error` and logged; the loop continues with the next item (see open question 1).
 
@@ -75,7 +80,7 @@ A **module** is a `Stage` whose output is a perception `Result` a robot / agent 
 
 ### Demo lives in `examples/`, not in the library
 
-The runnable webcam demo (main-thread OpenCV window, overlays of every module's latest result, ESC to quit) is an `examples/hand_demo.py` script at the repo root, outside `src/`. It is an application: it owns the display loop, the platform (main-thread) constraint, and any meaning it attaches to results (e.g. turning a `stop` label into a red banner). It is built by the plan that first wires a module onto the hand stage, and the `examples/` directory is added to the [AGENTS.md](../AGENTS.md) project map when it appears. The demo copies the frame before drawing on it.
+A runnable end-to-end demo lives at `examples/hand_demo.py`, outside `src/`, as an application built on this pipeline rather than part of it — specced on its own in [hand_demo.md](hand_demo.md).
 
 ### Non-goals (escalation paths, not built)
 
