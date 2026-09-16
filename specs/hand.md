@@ -2,11 +2,13 @@
 code:
   - src/vision_modules/hand.py
 tests:
+  - tests/test_hand.py
+  - tests-e2e/test_hand_live.py
 ---
 
 # Hand
 
-**Status:** Stable
+**Status:** Implemented
 
 ## Purpose
 
@@ -71,5 +73,5 @@ DetectedHand: box (x0, y0, x1, y1) normalized to [0, 1], unpadded; score float
 
 1. **Exposing landmarks / handedness later.** A future geometry module (finger counting, pointing direction) would need MediaPipe's 21 landmarks and `"Left"` / `"Right"` label. Plan: add them as optional fields on `Hand` and widen `DetectedHand` when that module is specced; note MediaPipe labels handedness assuming a mirrored image, so [stream.md](stream.md)'s `mirror` option becomes relevant then. Deferred — out of v1.
 2. **Hand identity across frames.** Whether to give each `Hand` a stable `track_id` (nearest-bbox matching between frames) so a two-hand consumer can follow a hand over time. Deferrable — matters only once `max_hands > 1` is used in practice.
-3. **Cache directory convention.** Where downloaded model files live (`~/.cache/vision-modules/` vs `platformdirs`) — shared with [gesture_classifier.md](gesture_classifier.md). Deferrable; pick in the first plan that downloads anything.
+3. **Cache directory convention.** Decided: `~/.cache/vision-modules/`, overridable with the `VISION_MODULES_CACHE` environment variable; no `platformdirs` dependency. Shared with [gesture_classifier.md](gesture_classifier.md).
 4. **Python 3.12 wheel availability** of `mediapipe` on macOS arm64 must be confirmed at plan time (it is a hard dependency of the `hand` extra).
