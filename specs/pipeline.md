@@ -2,11 +2,12 @@
 code:
   - src/vision_modules/pipeline.py
 tests:
+  - tests/test_pipeline.py
 ---
 
 # Pipeline
 
-**Status:** Stable
+**Status:** Implemented
 
 ## Purpose
 

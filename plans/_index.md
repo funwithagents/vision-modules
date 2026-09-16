@@ -9,6 +9,7 @@ Implementation plans for Vision Modules — each plan turns a settled part of a 
 | Plan | Description | Status |
 |---|---|---|
 | [202609161500_dependency-extras.md](202609161500_dependency-extras.md) | Declare core runtime deps (`numpy`, `opencv-python`) and the feature-named `hand` extra in `pyproject.toml` | Done |
+| [202609161510_pipeline-runtime.md](202609161510_pipeline-runtime.md) | `pipeline.py`: `LatestValue`, `Result`, `Stage`/`Module` worker loop, `Pipeline` lifecycle, with tests | Done |
 
 ## Status legend
 
