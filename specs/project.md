@@ -16,6 +16,7 @@ Structure and tooling for the Vision Modules project itself: Python version, dep
 ## Decided
 
 - **Python version:** 3.12+ minimum.
+- **License:** MIT (`LICENSE` at the repo root), declared in `pyproject.toml` via `license = "MIT"` and `license-files = ["LICENSE"]` so built distributions carry it. Models downloaded at runtime are not part of the repo and keep their own licenses (see the README's License section).
 - **Package layout:** `src/` layout — `src/vision_modules/...` — not flat, to avoid accidentally importing an uninstalled package from the repo root.
 - **Dependency/venv management:** `uv`. Dev tooling lives in the `dev` dependency group (`uv sync --dev`), not in runtime `dependencies`.
 - **Runtime dependencies are split by feature.** Core `dependencies` hold only what every user needs: `numpy` (the `Frame` / result arrays) and `opencv-python` (capture and image ops, see [stream.md](stream.md)). Heavy, feature-specific packages go in an **optional extra named after the feature**, under `[project.optional-dependencies]`, so a user installs only the perception they enable. Today there is one: `hand` = `mediapipe` (the shared hand stage, [hand.md](hand.md)) + `torch`, `transformers`, `pillow` (the gesture classifier, [gesture_classifier.md](gesture_classifier.md)) — `uv add --optional hand …` / `pip install "vision-modules[hand]"`. A new feature family (faces, poses, …) gets its own extra; the `dev` group installs every extra so the full test suite can import everything.

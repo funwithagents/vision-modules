@@ -301,3 +301,13 @@ Tests that lack what they need skip instead of failing. Environment variables:
   guessed, because opening an unavailable camera can crash the process natively)
 - `VISION_MODULES_HAND_IMAGE`: overrides the bundled hand photo
 - `VISION_MODULES_CACHE`: where the MediaPipe model bundle is cached
+
+## License
+
+MIT, see [LICENSE](LICENSE).
+
+The models downloaded on first use are not part of this repository and come under their own
+licenses: the MediaPipe `hand_landmarker.task` bundle is Apache-2.0, and
+`dima806/hand_gestures_image_detection` is published as Apache-2.0 by its author. That model
+was fine-tuned on the [HaGRID](https://github.com/hukenovs/hagrid) dataset, which is licensed
+CC BY-SA 4.0; check that this fits your use if you redistribute the model.
