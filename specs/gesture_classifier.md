@@ -2,11 +2,13 @@
 code:
   - src/vision_modules/gesture_classifier.py
 tests:
+  - tests/test_gesture_classifier.py
+  - tests-e2e/test_gesture_classifier_live.py
 ---
 
 # Gesture classifier
 
-**Status:** Stable
+**Status:** Implemented
 
 ## Purpose
 

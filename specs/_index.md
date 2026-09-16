@@ -13,7 +13,7 @@ Vision Modules is a library of independent vision modules that run over a video 
 | [stream.md](stream.md) | Stream: single capture entry point (`StreamProvider`), `Frame` shape, frame-ownership rules, injectable `FrameSource` | Implemented |
 | [pipeline.md](pipeline.md) | Pipeline: staged-graph runtime — latest-value sampling, `Stage`/`Module` base classes, `Result` contract, lifecycle and threading rules | Implemented |
 | [hand.md](hand.md) | Hand: shared hand stage (`HandStage`/`HandResult`) detecting and cropping hands once per frame behind a boxes-only `HandDetector` seam | Implemented |
-| [gesture_classifier.md](gesture_classifier.md) | Gesture classifier module: named gestures from the hand crop via an `ImageClassifier` seam (HaGRID ViT shipped) | Stable |
+| [gesture_classifier.md](gesture_classifier.md) | Gesture classifier module: named gestures from the hand crop via an `ImageClassifier` seam (HaGRID ViT shipped) | Implemented |
 
 Each spec also opens with a YAML **frontmatter** block declaring the `code:` and `tests:` files it governs — the spec → code/tests mapping the spec-drift checks use to scope what they compare. Keep it current when files move, and see [AGENTS.md](../AGENTS.md) ("Spec frontmatter") for the full convention.
 
