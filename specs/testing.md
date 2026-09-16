@@ -42,6 +42,8 @@ If the package holds process-global or singleton state, both tiers carry an iden
 
 A live test needs real credentials, and it must **skip — never fail** — when they're absent, so you exercise only the services you hold keys for and a contributor (or CI) with none is never broken. `tests-e2e/support.require_env(NAME)` implements this: it returns the env var or calls `pytest.skip(...)` when it's unset. Credentials come from the environment, never committed.
 
+Some resources have a sensible zero-config default instead of a required credential — e.g. a bundled sample image committed under `tests-e2e/fixtures/`. There, the test tries the default automatically (no env var needed for the common case) and only falls back to `pytest.skip(...)` if the default file isn't present — an env var still *overrides* the default when a contributor needs a different input. This only applies to resources a failed attempt can *fail Python-visibly*: a hardware resource (e.g. a camera index) stays behind a required, explicit env var instead, because opening one that isn't actually usable can crash the process natively (observed: `cv2`'s AVFoundation backend segfaults on `read()` rather than raising when camera access isn't actually granted) — no `try/except` catches that, so there is no safe way to "try a default and fall back."
+
 ## Tooling
 
 - **`pytest`** is the runner; **`ruff`** lints/formats; **`pyright`** (`standard` mode) type-checks. All three are the gate after any change — lint, type check, and tests must pass before work is considered done (see [AGENTS.md](../AGENTS.md), "Verification").

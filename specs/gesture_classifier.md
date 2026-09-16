@@ -4,6 +4,7 @@ code:
 tests:
   - tests/test_gesture_classifier.py
   - tests-e2e/test_gesture_classifier_live.py
+  - tests-e2e/test_hand_pipeline_live.py
 ---
 
 # Gesture classifier

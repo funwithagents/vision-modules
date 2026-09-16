@@ -1,11 +1,9 @@
 import numpy as np
-from support import require_env
 
 from vision_modules.gesture_classifier import HaGRIDViTClassifier
 
 
 def test_hagrid_model_loads_and_scores_every_class() -> None:
-    require_env("VISION_MODULES_E2E")
     clf = HaGRIDViTClassifier(
         device="cpu"
     )  # cpu: deterministic and available everywhere

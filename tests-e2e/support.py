@@ -6,8 +6,12 @@ services you hold keys for, and a contributor (or CI) with none is never broken.
 """
 
 import os
+from pathlib import Path
 
 import pytest
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+NO_HAND_IMAGE = FIXTURES_DIR / "no_hand.jpg"
 
 
 def require_env(name: str) -> str:
@@ -16,3 +20,45 @@ def require_env(name: str) -> str:
     if not value:
         pytest.skip(f"{name} not set; skipping live test")
     return value
+
+
+def labeled_hand_fixtures() -> list[tuple[str, Path]]:
+    """(label, path) for every tests-e2e/fixtures/hand_<label>.jpg.
+
+    <label> is the HaGRID class the photo was taken to show — ground truth for
+    tests that check the gesture classifier's actual prediction, not just that
+    it produced *a* label.
+    """
+    return sorted(
+        (path.stem.removeprefix("hand_"), path)
+        for path in FIXTURES_DIR.glob("hand_*.jpg")
+    )
+
+
+def hand_image_path() -> Path:
+    """Path to a real photo with one clearly visible hand (gesture doesn't matter).
+
+    `VISION_MODULES_HAND_IMAGE` overrides; otherwise the first bundled fixture is
+    used. Skips if neither is available, so a checkout without fixtures still
+    skips cleanly instead of failing.
+    """
+    override = os.environ.get("VISION_MODULES_HAND_IMAGE")
+    if override:
+        return Path(override)
+    fixtures = labeled_hand_fixtures()
+    if fixtures:
+        return fixtures[0][1]
+    pytest.skip(
+        "no hand image available: add tests-e2e/fixtures/hand_<gesture>.jpg or "
+        "set VISION_MODULES_HAND_IMAGE to a photo with one clearly visible hand"
+    )
+
+
+def no_hand_image_path() -> Path:
+    """Path to a real photo with no hand in frame, for the negative path.
+
+    Skips if the bundled fixture isn't present.
+    """
+    if NO_HAND_IMAGE.exists():
+        return NO_HAND_IMAGE
+    pytest.skip("no negative fixture available: add tests-e2e/fixtures/no_hand.jpg")

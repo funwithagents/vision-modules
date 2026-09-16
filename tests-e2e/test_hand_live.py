@@ -1,12 +1,11 @@
 import cv2
 import numpy as np
-from support import require_env
+from support import hand_image_path
 
 from vision_modules.hand import MediaPipeHandDetector
 
 
 def test_mediapipe_detector_runs_on_a_blank_image() -> None:
-    require_env("VISION_MODULES_E2E")  # skip unless opted in (network: model download)
     det = MediaPipeHandDetector()
     try:
         blank = np.zeros((480, 640, 3), np.uint8)
@@ -19,11 +18,8 @@ def test_mediapipe_detector_runs_on_a_blank_image() -> None:
 
 
 def test_mediapipe_detector_finds_a_hand_in_a_real_photo() -> None:
-    require_env("VISION_MODULES_E2E")
-    path = require_env(
-        "VISION_MODULES_HAND_IMAGE"
-    )  # path to any photo with one clearly visible hand
-    img = cv2.imread(path)
+    path = hand_image_path()
+    img = cv2.imread(str(path))
     assert img is not None
     det = MediaPipeHandDetector()
     try:

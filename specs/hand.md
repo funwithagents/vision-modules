@@ -4,6 +4,7 @@ code:
 tests:
   - tests/test_hand.py
   - tests-e2e/test_hand_live.py
+  - tests-e2e/test_hand_pipeline_live.py
 ---
 
 # Hand
