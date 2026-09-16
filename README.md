@@ -11,6 +11,10 @@ Status: early scaffold — no modules built yet.
 This project is built spec-first. Read [AGENTS.md](AGENTS.md), then
 [specs/_index.md](specs/_index.md) and [plans/_index.md](plans/_index.md).
 
+Runtime dependencies are split by feature: the core package needs only `numpy` and
+`opencv-python`; hand perception (the hand stage and the gesture classifier) is the `hand`
+extra — `pip install "vision-modules[hand]"`. `uv sync --dev` installs every extra.
+
 ```
 uv sync --dev
 uv run ruff check .
