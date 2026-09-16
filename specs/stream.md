@@ -2,11 +2,13 @@
 code:
   - src/vision_modules/stream.py
 tests:
+  - tests/test_stream.py
+  - tests-e2e/test_stream_live.py
 ---
 
 # Stream
 
-**Status:** Stable
+**Status:** Implemented
 
 ## Purpose
 
