@@ -169,12 +169,18 @@ upstream's rate sees every item; setting it lower deliberately down-samples.
 ### Hand
 
 ```
-HandStage(provider, target_fps=30, pad=0.35, max_hands=1, detector: HandDetector | None = None)
+HandStage(provider, target_fps=30, pad=0.35, max_hands=2, rank="area", hysteresis=0.2,
+          detector: HandDetector | None = None)
 ```
 
 Publishes a `HandResult` per frame, also when no hand is found (`present=False`):
 
-- `hands: tuple[Hand, ...]` in detector order, highest score first
+- `hands: tuple[Hand, ...]`, at most `max_hands`. When a detector offers more candidates
+  than that, the biggest (`rank="area"`) win, and a published hand is only displaced by one
+  more than `hysteresis` bigger; the order is slot-stable, so `hands[i]` stays the same
+  physical hand while it is visible. `max_hands` is also the detector's capacity: the shipped
+  MediaPipe detector never returns more hands than that, so with `max_hands=1` it keeps the
+  first hand it tracked.
 - `first: Hand | None`
 
 Each `Hand` has `bbox` (`(x0, y0, x1, y1)` in full-frame pixels, padded by `pad` and
@@ -295,10 +301,12 @@ uv run python examples/hand_demo.py --mirror
 ```
 
 Open the printed URL and grant the browser camera access. Flags: `--mirror`, `--hand-fps`
-(default 30), `--classifier-fps` (default 5), `--threshold` (default 0.55).
+(default 30), `--classifier-fps` (default 5), `--threshold` (default 0.55),
+`--max-hands` (default 2; one classification panel per hand).
 
-The page shows the raw feed, the same frame with a box per detected hand, and the first hand's
-full per-class score breakdown with the validated label marked. Sliders retune the threshold
+The page shows the raw feed, the same frame with a numbered box per detected hand in its slot
+colour, and one panel per hand (same colour) with that hand's three best classes
+and the validated label marked; a hand keeps its panel when the two hands' sizes cross. Sliders retune the threshold
 and both stages' target fps live, and a readout shows each stage's real achieved fps next to
 its target. Two buttons save what the hand stage and the classifier last consumed (the full
 frame, the classified crop) as `snapshot_<stage>_<timestamp>.jpg` in a folder you pick, the

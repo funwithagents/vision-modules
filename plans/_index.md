@@ -20,6 +20,7 @@ Implementation plans for Vision Modules — each plan turns a settled part of a 
 | [202609170227_snapshot.md](202609170227_snapshot.md) | `snapshot.py`: `save_frame` / `save_crops` over published values, package exports, round-trip and pipeline-driven tests | Done |
 | [202609170236_save-input.md](202609170236_save-input.md) | `Stage.last_input` (the item last handed to `process()`) and `save_input(stage, path)` dispatching on it, so a label-only module's input crop can be saved | Done |
 | [202609171209_demo-snapshot-buttons.md](202609171209_demo-snapshot-buttons.md) | Hand demo: snapshot folder box + "Save detector/classifier snapshot" buttons writing each module's last input as `snapshot_<stage>_<timestamp>.jpg`, with tested helpers | Done |
+| [202609171800_multi-hand-selection.md](202609171800_multi-hand-selection.md) | Multi-hand: `HandStage` `max_hands` default 2 (detected and published), area rank with hysteresis, slot-stable order via `select_hands`; demo `--max-hands` and one colour-linked panel per hand | Done |
 
 ## Status legend
 

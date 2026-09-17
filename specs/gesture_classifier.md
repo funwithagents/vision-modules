@@ -35,7 +35,7 @@ The runtime authority is the classifier's `labels` property (read from the model
 
 `Gesture(Result)` — frozen: `frame_id`, `ts`, `present`, plus:
 
-- `hands: tuple[HandGesture, ...]` — index-aligned with `HandResult.hands`.
+- `hands: tuple[HandGesture, ...]` — index-aligned with `HandResult.hands`, so it inherits [hand.md](hand.md)'s slot stability: `hands[i]` follows the same physical hand while that hand stays published. Multi-hand classification needs nothing from this module beyond what it already does — one crop, one `HandGesture`, per published hand, up to the hand stage's `max_hands`.
 - `first: HandGesture | None` — convenience: `hands[0]` or `None`.
 
 ### Module
@@ -69,5 +69,5 @@ The model takes single cropped images, so none of the `transformers` video utili
 
 1. **Confidence threshold.** Starting value 0.55 (from the reference script); tune on real use. Deferrable (constructor kwarg).
 2. **Framerate.** Starting value 5 fps against a 30 fps hand stage. Deferrable (constructor kwarg).
-3. **Batching across hands.** With `max_hands > 1`, classifying the crops in one batched call would be cheaper than one call each. Deferrable until multi-hand is used.
+3. **Batching across hands.** With `max_hands > 1` (now the default in [hand.md](hand.md)), classifying the crops in one batched call would be cheaper than one call each. Deferrable: at 5 fps and two hands the per-call overhead is not what bounds the demo; revisit if a consumer raises `max_hands` and the classifier's achieved fps falls short of its target.
 4. **Temporal smoothing.** A per-frame label can flicker between neighbouring classes; a consumer-side or later stabilizer concept could debounce it. Deferrable.

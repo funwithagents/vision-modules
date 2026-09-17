@@ -22,6 +22,7 @@ from vision_modules.hand import (
     HandResult,
     HandStage,
     MediaPipeHandDetector,
+    select_hands,
 )
 from vision_modules.pipeline import (
     LatestValue,
@@ -60,4 +61,5 @@ __all__ = [
     "save_frame",
     "save_input",
     "select_device",
+    "select_hands",
 ]

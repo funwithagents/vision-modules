@@ -29,6 +29,23 @@ from vision_modules import (
 
 DEMO_DIR = Path(__file__).resolve().parent  # default snapshot folder
 
+# One colour per hand slot (BGR, for cv2). A slot's panel label names the same colour.
+SLOT_COLORS: tuple[tuple[int, int, int], ...] = (
+    (0, 255, 0),  # green
+    (255, 128, 0),  # blue
+    (0, 165, 255),  # orange
+    (255, 0, 255),  # magenta
+)
+SLOT_NAMES: tuple[str, ...] = ("green", "blue", "orange", "magenta")
+
+
+def slot_color(index: int) -> tuple[int, int, int]:
+    return SLOT_COLORS[index % len(SLOT_COLORS)]
+
+
+def slot_name(index: int) -> str:
+    return SLOT_NAMES[index % len(SLOT_NAMES)]
+
 
 class PushFrameSource:
     """FrameSource fed by frames pushed from the Gradio streaming callback.
@@ -92,27 +109,46 @@ class FpsMeter:
 
 
 def draw_boxes(canvas: np.ndarray, hr: HandResult | None) -> None:
+    """One rectangle per published hand in its slot colour, with the slot number
+    (1-based) tagged just inside the top-left corner so a box can be matched to its panel."""
     if hr is None:
         return
-    for hand in hr.hands:
+    for i, hand in enumerate(hr.hands):
         x0, y0, x1, y1 = hand.bbox
-        cv2.rectangle(canvas, (x0, y0), (x1, y1), (0, 255, 0), 2)
+        color = slot_color(i)
+        cv2.rectangle(canvas, (x0, y0), (x1, y1), color, 2)
+        cv2.putText(
+            canvas,
+            str(i + 1),
+            (x0 + 4, y0 + 18),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            color,
+            2,
+        )
 
 
-def summarize(hr: HandResult | None, gesture: Gesture | None) -> dict[str, float]:
-    """Per-class scores for gr.Label (which sorts by score, so the top entry is
-    always the top class); the validated one, if any, is marked with a checkmark.
+def summarize(
+    hr: HandResult | None, gesture: Gesture | None, index: int = 0
+) -> dict[str, float]:
+    """Per-class scores of hand slot `index` for a gr.Label (which sorts by score,
+    so the top entry is always the top class); the validated one, if any, is
+    marked with a checkmark.
     """
-    if hr is None or not hr.hands:
+    if hr is None or index >= len(hr.hands):
         return {"no hand": 1.0}
-    first = gesture.first if gesture is not None else None
-    if first is None or not first.scores:
+    entry = (
+        gesture.hands[index]
+        if gesture is not None and index < len(gesture.hands)
+        else None
+    )
+    if entry is None or not entry.scores:
         return {"...": 1.0}  # classifier hasn't caught up to the hand stage yet
-    if first.label is None:
-        return dict(first.scores)
+    if entry.label is None:
+        return dict(entry.scores)
     return {
-        (f"✓ {label}" if label == first.label else label): score
-        for label, score in first.scores.items()
+        (f"✓ {label}" if label == entry.label else label): score
+        for label, score in entry.scores.items()
     }
 
 
@@ -149,6 +185,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hand-fps", type=float, default=30)
     parser.add_argument("--classifier-fps", type=float, default=5)
     parser.add_argument("--threshold", type=float, default=0.55)
+    parser.add_argument("--max-hands", type=int, default=2)
     return parser.parse_args()
 
 
@@ -160,20 +197,22 @@ def main() -> None:
 
     source = PushFrameSource()
     provider = StreamProvider(source, mirror=args.mirror)
-    hands = HandStage(provider, target_fps=args.hand_fps)
+    hands = HandStage(provider, target_fps=args.hand_fps, max_hands=args.max_hands)
     gestures = GestureClassifier(
         hands, target_fps=args.classifier_fps, threshold=args.threshold
     )
 
-    def on_frame(frame_rgb: np.ndarray) -> tuple[np.ndarray, dict[str, float]]:
+    def on_frame(frame_rgb: np.ndarray) -> tuple[Any, ...]:
         source.push(cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR))
         frame = provider.latest()
         if frame is None:
-            return frame_rgb, {"no hand": 1.0}
+            return (frame_rgb, *([{"no hand": 1.0}] * args.max_hands))
         canvas = frame.image.copy()  # NEVER draw on frame.image
         hr = hands.latest()
         draw_boxes(canvas, hr)
-        return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB), summarize(hr, gestures.latest())
+        gesture = gestures.latest()
+        panels = [summarize(hr, gesture, i) for i in range(args.max_hands)]
+        return (cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB), *panels)
 
     def on_threshold_change(value: float) -> None:
         gestures.threshold = value
@@ -242,12 +281,21 @@ def main() -> None:
             save_classifier = gr.Button("Save classifier snapshot", scale=1)
         snapshot_status = gr.Markdown("")
         with gr.Row():
-            with gr.Column():
+            # One row: two video columns (scale 2), then one narrow panel per slot
+            # (scale 1). min_width is lowered from Gradio's 320px default, which
+            # otherwise wraps the last column onto a new row at laptop widths.
+            with gr.Column(scale=2, min_width=240):
                 cam_in = gr.Image(sources=["webcam"], streaming=True, label="Input")
-            with gr.Column():
+            with gr.Column(scale=2, min_width=240):
                 cam_out = gr.Image(label="Detected", interactive=False)
-            with gr.Column():
-                scores = gr.Label(label="Classifications")
+            score_panels: list[Any] = []
+            for i in range(args.max_hands):
+                with gr.Column(scale=1, min_width=120):
+                    score_panels.append(
+                        gr.Label(
+                            label=f"Hand {i + 1} ({slot_name(i)})", num_top_classes=3
+                        )
+                    )
         threshold.change(on_threshold_change, inputs=threshold, outputs=None)
         hand_fps.change(on_hand_fps_change, inputs=hand_fps, outputs=None)
         classifier_fps.change(
@@ -260,7 +308,7 @@ def main() -> None:
         cam_in.stream(
             fn=on_frame,
             inputs=cam_in,
-            outputs=[cam_out, scores],
+            outputs=[cam_out, *score_panels],
             stream_every=1 / args.hand_fps,
         )
         gr.Timer(1.0).tick(fn=on_fps_tick, outputs=fps_display)

@@ -6,9 +6,10 @@ Governed by specs/hand.md.
 import logging
 import os
 import urllib.request
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 import cv2
 import numpy as np
@@ -35,6 +36,74 @@ class DetectedHand:
 class HandDetector(Protocol):
     def detect(self, image_bgr: np.ndarray, ts: float) -> tuple[DetectedHand, ...]: ...
     def close(self) -> None: ...
+
+
+MATCH_IOU = 0.3  # a candidate must overlap a previously published box this much to be its incumbent
+Rank = Literal["area", "score"]
+
+
+def box_area(box: tuple[float, float, float, float]) -> float:
+    """Area of a normalized (x0, y0, x1, y1) box; 0.0 for an inverted box."""
+    x0, y0, x1, y1 = box
+    return max(0.0, x1 - x0) * max(0.0, y1 - y0)
+
+
+def box_iou(
+    a: tuple[float, float, float, float], b: tuple[float, float, float, float]
+) -> float:
+    """Intersection over union of two normalized boxes; 0.0 when they don't overlap."""
+    ix0, iy0 = max(a[0], b[0]), max(a[1], b[1])
+    ix1, iy1 = min(a[2], b[2]), min(a[3], b[3])
+    inter = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
+    union = box_area(a) + box_area(b) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def select_hands(
+    candidates: Sequence[DetectedHand],
+    previous: Sequence[DetectedHand],
+    max_hands: int,
+    rank: Rank,
+    hysteresis: float,
+) -> tuple[DetectedHand, ...]:
+    """Pick at most `max_hands` of `candidates`, slot-stable against `previous`.
+
+    See specs/hand.md "Selection: rank, hysteresis, slot stability".
+    """
+    # 1. rank key per candidate
+    keys = [box_area(d.box) if rank == "area" else d.score for d in candidates]
+
+    # 2. match candidates to previously published slots by IoU, best pairs first
+    pairs: list[tuple[float, int, int]] = []
+    for pi, p in enumerate(previous):
+        for ci, c in enumerate(candidates):
+            iou = box_iou(p.box, c.box)
+            if iou >= MATCH_IOU:
+                pairs.append((iou, pi, ci))
+    pairs.sort(key=lambda t: t[0], reverse=True)
+    slot_of: dict[int, int] = {}  # candidate index -> previous slot index
+    used_slots: set[int] = set()
+    for _, pi, ci in pairs:
+        if pi in used_slots or ci in slot_of:
+            continue
+        slot_of[ci] = pi
+        used_slots.add(pi)
+
+    # 3. hysteresis: incumbents get a boost
+    boosted = [
+        k * (1.0 + hysteresis) if ci in slot_of else k for ci, k in enumerate(keys)
+    ]
+
+    # 4. choose: highest boosted key first; sorted() is stable, so ties keep detector order
+    order = sorted(range(len(candidates)), key=lambda ci: boosted[ci], reverse=True)
+    kept = order[:max_hands]
+
+    # 5. order: incumbents in their previous slot order, then newcomers in rank order
+    incumbents = sorted(
+        (ci for ci in kept if ci in slot_of), key=lambda ci: slot_of[ci]
+    )
+    newcomers = [ci for ci in kept if ci not in slot_of]
+    return tuple(candidates[ci] for ci in incumbents + newcomers)
 
 
 @dataclass(frozen=True, eq=False)
@@ -72,16 +141,29 @@ class HandStage(Stage[Frame, HandResult]):
         provider: Upstream[Frame],
         target_fps: float | None = 30,
         pad: float = 0.35,
-        max_hands: int = 1,
+        max_hands: int = 2,
+        rank: Rank = "area",
+        hysteresis: float = 0.2,
         detector: HandDetector | None = None,
     ) -> None:
+        if max_hands < 1:
+            raise ValueError(f"max_hands must be >= 1, got {max_hands}")
+        if hysteresis < 0:
+            raise ValueError(f"hysteresis must be >= 0, got {hysteresis}")
+        if rank not in ("area", "score"):
+            raise ValueError(f"rank must be 'area' or 'score', got {rank!r}")
         super().__init__(provider, target_fps)
         self.pad = pad
         self.max_hands = max_hands
+        self.rank: Rank = rank
+        self.hysteresis = hysteresis
         self._borrowed = detector  # caller's: used, never closed here
         self._owned: HandDetector | None = (
             None  # ours: created per run, closed in close()
         )
+        self._previous: tuple[
+            DetectedHand, ...
+        ] = ()  # last published, worker thread only
 
     def _detector(self) -> HandDetector:
         if self._borrowed is not None:
@@ -93,12 +175,13 @@ class HandStage(Stage[Frame, HandResult]):
     def process(self, item: Frame) -> HandResult:
         frame = item
         found = self._detector().detect(frame.image, frame.ts)
-        found = tuple(sorted(found, key=lambda d: d.score, reverse=True))[
-            : self.max_hands
-        ]
+        selected = select_hands(
+            found, self._previous, self.max_hands, self.rank, self.hysteresis
+        )
+        self._previous = selected
         height, width = frame.image.shape[:2]
         hands: list[Hand] = []
-        for d in found:
+        for d in selected:
             x0, y0, x1, y1 = padded_box(d.box, width, height, self.pad)
             crop = frame.image[y0:y1, x0:x1].copy() if x1 > x0 and y1 > y0 else None
             hands.append(Hand((x0, y0, x1, y1), crop, d.score))
@@ -107,6 +190,7 @@ class HandStage(Stage[Frame, HandResult]):
         )
 
     def close(self) -> None:
+        self._previous = ()  # a restarted run starts with no incumbents
         if self._owned is not None:
             self._owned.close()
             self._owned = None  # a restarted run creates a fresh one

@@ -11,8 +11,10 @@ import numpy as np
 import pytest
 from hand_demo import (
     DEMO_DIR,
+    SLOT_COLORS,
     FpsMeter,
     PushFrameSource,
+    draw_boxes,
     save_snapshot,
     snapshot_path,
     summarize,
@@ -82,6 +84,60 @@ def test_summarize_below_threshold_shows_plain_scores() -> None:
 def test_summarize_marks_the_validated_label() -> None:
     out = summarize(_hand_result(1), _gesture("palm", {"fist": 0.2, "palm": 0.8}))
     assert out == {"fist": 0.2, "✓ palm": 0.8}
+
+
+def test_summarize_index_beyond_published_hands_is_no_hand() -> None:
+    assert summarize(_hand_result(1), _gesture("palm", {"palm": 1.0}), index=1) == {
+        "no hand": 1.0
+    }
+
+
+def test_summarize_index_with_hand_but_no_gesture_entry_is_pending() -> None:
+    # two hands published, classifier result only has one entry so far
+    assert summarize(_hand_result(2), _gesture("palm", {"palm": 1.0}), index=1) == {
+        "...": 1.0
+    }
+
+
+def test_summarize_reads_the_requested_slot() -> None:
+    two = Gesture(
+        1,
+        1.0,
+        present=True,
+        hands=(
+            HandGesture("palm", 0.8, {"fist": 0.2, "palm": 0.8}),
+            HandGesture("fist", 0.7, {"fist": 0.7, "palm": 0.3}),
+        ),
+    )
+    assert summarize(_hand_result(2), two, index=0) == {"fist": 0.2, "✓ palm": 0.8}
+    assert summarize(_hand_result(2), two, index=1) == {"✓ fist": 0.7, "palm": 0.3}
+
+
+# --- draw_boxes ----------------------------------------------------------------
+
+
+def test_draw_boxes_uses_one_colour_per_slot() -> None:
+    canvas = np.zeros((100, 100, 3), np.uint8)
+    hr = HandResult(
+        1,
+        1.0,
+        present=True,
+        hands=(Hand((10, 10, 50, 50), None, 0.9), Hand((60, 60, 90, 90), None, 0.9)),
+    )
+    draw_boxes(canvas, hr)
+    assert (
+        tuple(int(v) for v in canvas[10, 30]) == SLOT_COLORS[0]
+    )  # on box 1's top edge
+    assert (
+        tuple(int(v) for v in canvas[60, 75]) == SLOT_COLORS[1]
+    )  # on box 2's top edge
+    assert not canvas[5, 5].any()  # outside both boxes: untouched
+
+
+def test_draw_boxes_with_no_result_leaves_the_canvas_alone() -> None:
+    canvas = np.zeros((20, 20, 3), np.uint8)
+    draw_boxes(canvas, None)
+    assert not canvas.any()
 
 
 # --- PushFrameSource ---------------------------------------------------------------

@@ -12,6 +12,7 @@ import pytest
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 NO_HAND_IMAGE = FIXTURES_DIR / "no_hand.jpg"
+TWO_HANDS_IMAGE = FIXTURES_DIR / "two_hands.jpg"
 
 
 def require_env(name: str) -> str:
@@ -62,3 +63,10 @@ def no_hand_image_path() -> Path:
     if NO_HAND_IMAGE.exists():
         return NO_HAND_IMAGE
     pytest.skip("no negative fixture available: add tests-e2e/fixtures/no_hand.jpg")
+
+
+def two_hands_image_path() -> Path:
+    """Path to a real photo with two clearly visible hands. Skips if absent."""
+    if TWO_HANDS_IMAGE.exists():
+        return TWO_HANDS_IMAGE
+    pytest.skip("no two-hand fixture available: add tests-e2e/fixtures/two_hands.jpg")

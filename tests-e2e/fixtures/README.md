@@ -18,6 +18,11 @@ Used by:
 full pipeline reports `present=False` end to end instead of a stale or
 fabricated result.
 
+`two_hands.jpg` (optional) — a real photo with two clearly visible hands of
+different apparent size. Used by `tests-e2e/test_hand_live.py` to check that the
+detector returns two hands when asked for two and one when asked for one; the
+test skips when the file is absent.
+
 These are original photos contributed to the project (not sourced from a
 third-party dataset), so they carry no external license/attribution
 obligations — covered by this repo's own license like any other file here.
