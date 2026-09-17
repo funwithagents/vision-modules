@@ -30,6 +30,11 @@ class FrameSource(Protocol):
     def open(self) -> None: ...
     def read(self) -> np.ndarray | None: ...
     def close(self) -> None: ...
+    def fps(
+        self,
+    ) -> (
+        float | None
+    ): ...  # nominal rate the device reports; None when unknown / not open
 
 
 class OpenCVSource:
@@ -65,6 +70,15 @@ class OpenCVSource:
                 self._cap.release()
                 self._cap = None
 
+    def fps(self) -> float | None:
+        # Same lock as read(): VideoCapture.get() is no more thread-safe than
+        # read(). Many webcams report 0, which is "unknown", not a rate.
+        with self._lock:
+            if self._cap is None:
+                return None
+            value = self._cap.get(cv2.CAP_PROP_FPS)
+            return value if value > 0 else None
+
 
 class StreamProvider:
     def __init__(
@@ -78,6 +92,9 @@ class StreamProvider:
         self._thread: threading.Thread | None = None
         self._frame_id = 0
         self._ended = False
+        # Exact number of frames ever published (across restarts) — same
+        # contract as Stage.published_count, so one meter fits every node.
+        self.published_count = 0
 
     def start(self) -> Self:
         """Open the source and spawn the capture thread. No-op while running;
@@ -104,6 +121,13 @@ class StreamProvider:
     @property
     def ended(self) -> bool:
         return self._ended
+
+    @property
+    def source_fps(self) -> float | None:
+        """Rate the source claims for itself; None before start(), after stop(),
+        or when the source has no nominal rate (see published_count for the
+        rate actually achieved)."""
+        return self._source.fps() if self._source is not None else None
 
     def stop(self) -> None:
         if self._thread is None:
@@ -141,5 +165,6 @@ class StreamProvider:
             if self._mirror:
                 img = cv2.flip(img, 1)
             self._frame_id += 1
+            self.published_count += 1
             ts = time.monotonic()
             self._slot.publish(Frame(self._frame_id, ts, img))

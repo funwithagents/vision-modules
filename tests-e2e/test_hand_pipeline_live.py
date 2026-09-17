@@ -36,6 +36,9 @@ class StaticImageSource:
     def close(self) -> None:
         pass
 
+    def fps(self) -> float | None:
+        return None
+
 
 def _run_pipeline(img: np.ndarray) -> tuple[HandResult, Gesture]:
     """Runs the real detect+crop+classify chain until both stages publish once."""

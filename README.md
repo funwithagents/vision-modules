@@ -46,7 +46,9 @@ Key rules every node obeys:
 - **`present=False` is a real result.** A module publishes one `Result` per processed frame;
   "no hand in this frame" is `present=False`, and only `None` means "not started yet".
 - **A stage's real rate is capped by its upstream's.** `target_fps` is a ceiling, not a
-  guarantee. `Stage.published_count` is the exact way to measure a stage's achieved rate.
+  guarantee. `Stage.published_count` is the exact way to measure a stage's achieved rate, and
+  `StreamProvider.published_count` gives the same counter for the root (`source_fps` is only
+  what the camera or file *claims*).
 - **Frames are shared by reference and read-only.** Anything that draws on a frame copies it
   first; anything that publishes a sub-region (the hand crop) copies it too.
 - **Errors in `process()` never kill the graph.** They are recorded in `last_error`, logged,
@@ -118,6 +120,8 @@ StreamProvider(source: int | str | FrameSource = 0, *, mirror: bool = False)
   .start() -> StreamProvider   # opens the source, spawns the capture thread; restartable
   .latest() -> Frame | None    # newest frame, or None before the first read
   .ended -> bool               # True once the source ran out on its own (not after stop())
+  .published_count -> int      # frames published so far, ever (across restarts); exact achieved-rate counter
+  .source_fps -> float | None  # rate the source claims (CAP_PROP_FPS); None when unknown or not open
   .stop() -> None              # signals the thread, closes the source, joins the thread
   # also a context manager
 ```
@@ -133,6 +137,7 @@ class FrameSource(Protocol):
     def open(self) -> None: ...  # called by start(); a restart re-opens
     def read(self) -> np.ndarray | None: ...  # next BGR image, or None when exhausted
     def close(self) -> None: ...  # called by stop(); must unblock a pending read()
+    def fps(self) -> float | None: ...  # nominal rate the device reports, or None
 ```
 
 The provider drives the source's lifecycle: `open()` on every `start()`, `close()` on every

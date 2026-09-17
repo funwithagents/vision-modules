@@ -54,6 +54,9 @@ class PushFrameSource:
         self._closed = True
         self._new_frame.set()
 
+    def fps(self) -> float | None:
+        return None  # browser-pushed frames carry no device rate
+
 
 class FpsMeter:
     """Real achieved fps of a Stage, from its published_count alone.
@@ -146,17 +149,23 @@ def main() -> None:
     def on_classifier_fps_change(value: float) -> None:
         gestures.target_fps = value
 
+    stream_fps_meter = FpsMeter()
     hand_fps_meter = FpsMeter()
     classifier_fps_meter = FpsMeter()
 
+    def fmt(fps: float | None) -> str:
+        return f"{fps:.1f}" if fps is not None else "—"
+
     def on_fps_tick() -> str:
+        stream_fps = stream_fps_meter.sample(provider.published_count)
         hand_fps = hand_fps_meter.sample(hands.published_count)
         classifier_fps = classifier_fps_meter.sample(gestures.published_count)
-        hand_text = f"{hand_fps:.1f}" if hand_fps is not None else "—"
-        classifier_text = f"{classifier_fps:.1f}" if classifier_fps is not None else "—"
+        # The stream has no target_fps: its ceiling is stream_every, fixed at
+        # launch from --hand-fps (see cam_in.stream below).
         return (
-            f"Hand stage: **{hand_text} fps** (target {hands.target_fps}) &nbsp;·&nbsp; "
-            f"Classifier: **{classifier_text} fps** (target {gestures.target_fps})"
+            f"Stream: **{fmt(stream_fps)} fps** (browser cap {args.hand_fps:g}) &nbsp;·&nbsp; "
+            f"Hand stage: **{fmt(hand_fps)} fps** (target {hands.target_fps}) &nbsp;·&nbsp; "
+            f"Classifier: **{fmt(classifier_fps)} fps** (target {gestures.target_fps})"
         )
 
     with gr.Blocks(title="vision-modules hand demo") as demo:

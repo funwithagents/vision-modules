@@ -40,6 +40,20 @@ class SteppedSource:
         self.closed = True
         self._gate.release()  # release a read blocked in acquire()
 
+    def fps(self) -> float | None:
+        return None  # a stepped source has no nominal rate
+
+
+class RatedSource(SteppedSource):
+    """A SteppedSource that claims a nominal rate."""
+
+    def __init__(self, images: list[np.ndarray], nominal_fps: float):
+        super().__init__(images)
+        self.nominal_fps = nominal_fps
+
+    def fps(self) -> float | None:
+        return self.nominal_fps
+
 
 def wait_until(pred: object, timeout: float = 2.0) -> None:
     assert callable(pred)
@@ -248,11 +262,64 @@ def test_int_source_that_cannot_open_raises_from_start() -> None:
     assert not any(t.name == "StreamProvider" for t in threading.enumerate())
 
 
+# --- Rate: measured (published_count) vs. nominal (source_fps) -----------------
+
+
+def test_published_count_counts_published_frames_and_matches_frame_id() -> None:
+    src = SteppedSource([make_image() for _ in range(3)])
+    sp = StreamProvider(src)
+    assert sp.published_count == 0
+    with sp:
+        src.allow(2)
+        wait_until(lambda: sp.published_count == 2)
+        f = sp.latest()
+        assert f is not None and f.frame_id == sp.published_count == 2
+        src.allow()
+        wait_until(lambda: sp.published_count == 3)
+    assert sp.published_count == 3  # survives stop()
+
+
+def test_published_count_keeps_counting_across_restart() -> None:
+    src = SteppedSource([make_image() for _ in range(3)])
+    sp = StreamProvider(src)
+    sp.start()
+    src.allow(2)
+    wait_until(lambda: sp.published_count == 2)
+    sp.stop()
+    sp.start()
+    try:
+        src.allow()
+        wait_until(lambda: sp.published_count == 3)  # 2 + 1, no reset to 1
+    finally:
+        sp.stop()
+
+
+def test_source_fps_is_none_before_start_and_for_a_source_without_one() -> None:
+    src = SteppedSource([make_image()])
+    sp = StreamProvider(src)
+    assert sp.source_fps is None  # no source opened yet
+    with sp:
+        src.allow()
+        wait_until(lambda: sp.latest() is not None)
+        assert sp.source_fps is None  # the source reports None, so does the provider
+
+
+def test_source_fps_reports_what_the_source_claims() -> None:
+    src = RatedSource([make_image()], nominal_fps=29.97)
+    with StreamProvider(src) as sp:
+        assert sp.source_fps == 29.97
+
+
 # --- OpenCVSource on a generated video file (no camera, no network) -----------
 
 
+CLIP_FPS = 10.0
+
+
 def write_clip(path: Path, n_frames: int) -> None:
-    writer = cv2.VideoWriter(str(path), cv2.VideoWriter.fourcc(*"MJPG"), 10.0, (32, 24))
+    writer = cv2.VideoWriter(
+        str(path), cv2.VideoWriter.fourcc(*"MJPG"), CLIP_FPS, (32, 24)
+    )
     assert writer.isOpened(), "cv2 cannot write MJPG here"
     for i in range(n_frames):
         writer.write(np.full((24, 32, 3), i * 40, np.uint8))
@@ -273,6 +340,32 @@ def test_opencv_source_open_read_close_reopen(tmp_path: Path) -> None:
     again = src.read()
     assert again is not None and np.array_equal(again, first)
     src.close()
+
+
+def test_opencv_source_fps_reads_the_files_encoded_rate_only_while_open(
+    tmp_path: Path,
+) -> None:
+    write_clip(tmp_path / "clip.avi", 3)
+    src = OpenCVSource(str(tmp_path / "clip.avi"))
+    assert src.fps() is None  # not open: nothing to report
+    src.open()
+    assert src.fps() == pytest.approx(CLIP_FPS)
+    src.close()
+    assert src.fps() is None
+
+
+def test_provider_source_fps_follows_the_file_while_running(tmp_path: Path) -> None:
+    write_clip(tmp_path / "clip.avi", 3)
+    sp = StreamProvider(str(tmp_path / "clip.avi"))
+    assert sp.source_fps is None
+    sp.start()
+    try:
+        assert sp.source_fps == pytest.approx(CLIP_FPS)
+        wait_until(lambda: sp.ended)
+        assert sp.published_count == 3
+    finally:
+        sp.stop()
+    assert sp.source_fps is None  # capture released
 
 
 def test_provider_reads_a_file_to_the_end_and_replays_it_on_restart(
