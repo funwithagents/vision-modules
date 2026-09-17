@@ -2,7 +2,9 @@
 
 Public API: everything a consumer needs to wire the shipped graph, write a
 custom stage (`Stage`/`Module`/`Upstream`/`Result`) or plug a custom backend
-(`FrameSource`, `HandDetector`/`DetectedHand`, `ImageClassifier`).
+(`FrameSource`, `HandDetector`/`DetectedHand`, `ImageClassifier`), plus
+`save_frame`/`save_crops`/`save_input` to snapshot what a node last published or
+last consumed to disk.
 """
 
 from vision_modules.gesture_classifier import (
@@ -29,6 +31,7 @@ from vision_modules.pipeline import (
     Stage,
     Upstream,
 )
+from vision_modules.snapshot import save_crops, save_frame, save_input
 from vision_modules.stream import Frame, FrameSource, OpenCVSource, StreamProvider
 
 __all__ = [
@@ -53,5 +56,8 @@ __all__ = [
     "Stage",
     "StreamProvider",
     "Upstream",
+    "save_crops",
+    "save_frame",
+    "save_input",
     "select_device",
 ]

@@ -2,13 +2,32 @@
 
 import threading
 import time
+from datetime import UTC, datetime
+from pathlib import Path
 
+import cv2
 import hand_demo
 import numpy as np
 import pytest
-from hand_demo import FpsMeter, PushFrameSource, summarize
+from hand_demo import (
+    DEMO_DIR,
+    FpsMeter,
+    PushFrameSource,
+    save_snapshot,
+    snapshot_path,
+    summarize,
+)
 
-from vision_modules import Gesture, Hand, HandGesture, HandResult
+from vision_modules import (
+    DetectedHand,
+    Frame,
+    Gesture,
+    GestureClassifier,
+    Hand,
+    HandGesture,
+    HandResult,
+    HandStage,
+)
 
 # --- FpsMeter ------------------------------------------------------------------
 
@@ -100,3 +119,142 @@ def test_push_source_close_unblocks_read_and_open_restarts_it() -> None:
     img = np.ones((2, 2, 3), np.uint8)
     src.push(img)
     assert src.read() is img  # restartable
+
+
+# --- Snapshots ----------------------------------------------------------------
+
+
+class FakeProvider:
+    def __init__(self, frame: Frame | None = None) -> None:
+        self.frame = frame
+
+    def latest(self) -> Frame | None:
+        return self.frame
+
+
+class FakeHandStage:
+    def __init__(self, result: HandResult | None = None) -> None:
+        self.result = result
+
+    def latest(self) -> HandResult | None:
+        return self.result
+
+
+class ScriptedDetector:
+    def detect(self, image_bgr: np.ndarray, ts: float) -> tuple[DetectedHand, ...]:
+        return (DetectedHand((0.25, 0.25, 0.75, 0.75), 0.9),)
+
+    def close(self) -> None:
+        pass
+
+
+class ScriptedClassifier:
+    labels = ("fist", "palm")
+
+    def classify(self, image_bgr: np.ndarray) -> dict[str, float]:
+        return {"fist": 0.9, "palm": 0.1}
+
+    def close(self) -> None:
+        pass
+
+
+def wait_until(pred: object, timeout: float = 2.0) -> None:
+    assert callable(pred)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if pred():
+            return
+        time.sleep(0.005)
+    assert pred(), "condition not met within timeout"
+
+
+def flat_image(w: int = 64, h: int = 48) -> np.ndarray:
+    # Flat colour so the lossy JPEG round-trip stays within rounding of the source.
+    return np.full((h, w, 3), (30, 120, 200), np.uint8)
+
+
+def assert_jpeg_matches(path: Path, source: np.ndarray) -> None:
+    back = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    assert back is not None
+    assert back.shape == source.shape
+    assert np.abs(back.astype(int) - source.astype(int)).max() <= 2
+
+
+def test_snapshot_path_names_by_stage_and_wall_clock_second() -> None:
+    now = datetime(2026, 9, 17, 3, 7, 9, tzinfo=UTC)
+    assert snapshot_path("/tmp/out", "HandStage", now) == Path(
+        "/tmp/out/snapshot_HandStage_20260917030709.jpg"
+    )
+
+
+def test_default_snapshot_folder_is_the_demo_scripts_directory() -> None:
+    assert DEMO_DIR == Path(hand_demo.__file__).resolve().parent
+    assert (DEMO_DIR / "hand_demo.py").is_file()
+
+
+def test_save_snapshot_of_the_detector_writes_the_frame_it_saw(tmp_path: Path) -> None:
+    img = flat_image()
+    hands = HandStage(
+        FakeProvider(Frame(1, 1.0, img)), target_fps=None, detector=ScriptedDetector()
+    )
+    hands.start()
+    try:
+        wait_until(lambda: hands.latest() is not None)
+        message = save_snapshot(
+            hands, tmp_path, now=datetime(2026, 9, 17, 3, 7, 9, tzinfo=UTC)
+        )
+    finally:
+        hands.stop()
+
+    target = tmp_path / "snapshot_HandStage_20260917030709.jpg"
+    assert message == f"Saved `{target}`"
+    assert_jpeg_matches(target, img)
+
+
+def test_save_snapshot_of_the_classifier_writes_the_crop_it_classified(
+    tmp_path: Path,
+) -> None:
+    crop = flat_image(16, 16)
+    hr = HandResult(1, 1.0, present=True, hands=(Hand((0, 0, 16, 16), crop, 0.9),))
+    gestures = GestureClassifier(
+        FakeHandStage(hr), target_fps=None, classifier=ScriptedClassifier()
+    )
+    gestures.start()
+    try:
+        wait_until(lambda: gestures.latest() is not None)
+        message = save_snapshot(
+            gestures, tmp_path, now=datetime(2026, 9, 17, 3, 7, 9, tzinfo=UTC)
+        )
+    finally:
+        gestures.stop()
+
+    target = tmp_path / "snapshot_GestureClassifier_20260917030709_0.jpg"
+    assert message == f"Saved `{target}`"
+    assert_jpeg_matches(target, crop)
+
+
+def test_save_snapshot_reports_instead_of_raising_when_nothing_was_processed(
+    tmp_path: Path,
+) -> None:
+    gestures = GestureClassifier(FakeHandStage(), classifier=ScriptedClassifier())
+    message = save_snapshot(gestures, tmp_path)
+    assert message.startswith("⚠️ GestureClassifier:")
+    assert "not processed anything yet" in message
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_save_snapshot_reports_when_the_classifiers_last_input_had_no_hand(
+    tmp_path: Path,
+) -> None:
+    empty = HandResult(1, 1.0, present=False, hands=())
+    gestures = GestureClassifier(
+        FakeHandStage(empty), target_fps=None, classifier=ScriptedClassifier()
+    )
+    gestures.start()
+    try:
+        wait_until(lambda: gestures.latest() is not None)
+        message = save_snapshot(gestures, tmp_path)
+    finally:
+        gestures.stop()
+    assert "no crop to save" in message
+    assert list(tmp_path.iterdir()) == []

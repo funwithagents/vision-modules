@@ -194,6 +194,59 @@ def test_published_count_reflects_this_stages_rate_not_upstream_frame_id() -> No
     assert 2 <= st.published_count <= 8  # roughly this stage's own ~10fps cap over 0.5s
 
 
+def test_last_input_is_none_until_the_first_item_arrives() -> None:
+    upstream = FakeUpstream()
+    st = RecordingStage(upstream, target_fps=None)
+    assert st.last_input is None
+    st.start()
+    try:
+        time.sleep(0.02)
+        assert st.last_input is None  # upstream empty: nothing was handed to process()
+        upstream.item = Item(5)
+        wait_until(lambda: st.last_input == Item(5))
+    finally:
+        st.stop()
+
+
+def test_last_input_is_set_before_process_runs_so_it_names_a_failing_input() -> None:
+    upstream = FakeUpstream()
+    upstream.item = Item(1)  # FlakyStage raises on frame 1
+    st = FlakyStage(upstream, target_fps=None)
+    st.start()
+    try:
+        wait_until(lambda: st.last_error is not None)
+        assert st.last_input == Item(1)
+        assert st.latest() is None  # nothing published, yet the input is on record
+        upstream.item = Item(2)
+        wait_until(lambda: st.published_count == 1)
+        assert st.last_input == Item(2)
+        result = st.latest()
+        assert result is not None and result.frame_id == 2
+    finally:
+        st.stop()
+
+
+def test_last_input_tracks_this_stages_own_cadence_not_the_upstream() -> None:
+    # A slow stage under a fast upstream: last_input is what *this* stage took,
+    # and stays pinned while the upstream keeps racing ahead.
+    upstream = ClockDrivenUpstream(fps=1000)
+    st = RecordingStage(upstream, target_fps=4)
+    st.start()
+    try:
+        wait_until(lambda: st.published_count >= 1)
+        taken = st.last_input
+        assert taken is not None
+        assert taken == st.seen[-1]
+        # Let the upstream race ahead (a few ms at 1000 fps); at 4 fps this stage
+        # won't take another item for ~250 ms, so last_input stays pinned.
+        wait_until(lambda: upstream.latest().frame_id > taken.frame_id)
+        time.sleep(0.02)
+        assert st.last_input == taken
+        assert upstream.latest().frame_id > taken.frame_id
+    finally:
+        st.stop()
+
+
 def test_process_returning_none_publishes_nothing() -> None:
     upstream = FakeUpstream()
     upstream.item = Item(1)
@@ -269,6 +322,7 @@ def test_stage_restarts_after_stop_as_a_fresh_run() -> None:
     first_close = st.closed_on
     assert first_close is not None
     assert not any(t.name == "restart-stage" for t in threading.enumerate())
+    assert st.last_input == Item(1)  # survives the stop, like latest()
 
     st.closed_on = None
     st.start()

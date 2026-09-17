@@ -21,6 +21,7 @@ is the job of the robot or agent consuming the results.
 | Pipeline | `Stage`, `Module`, `Result`, `Pipeline`, `LatestValue`, `Upstream` | Staged-graph runtime: latest-value sampling, per-node threads and framerates, ordered start/stop | [specs/pipeline.md](specs/pipeline.md) |
 | Hand | `HandStage`, `HandResult`, `Hand`, `HandDetector`, `DetectedHand`, `MediaPipeHandDetector` | Shared stage: detects and crops hands **once per frame** for every hand-based module | [specs/hand.md](specs/hand.md) |
 | Gesture classifier | `GestureClassifier`, `Gesture`, `HandGesture`, `ImageClassifier`, `HaGRIDViTClassifier`, `select_device` | Perception module: names the gesture in each hand crop (18 HaGRID classes) | [specs/gesture_classifier.md](specs/gesture_classifier.md) |
+| Snapshot | `save_frame`, `save_crops`, `save_input` | Write what a node last published or last consumed to a local image file, from the caller's thread | [specs/snapshot.md](specs/snapshot.md) |
 | Hand demo | `examples/hand_demo.py` | Runnable Gradio browser app wiring the whole graph end to end | [specs/hand_demo.md](specs/hand_demo.md) |
 
 Everything in the table is implemented and exported from `vision_modules`.
@@ -154,6 +155,7 @@ Stage[TIn, TOut](upstream, target_fps: float | None, name: str | None = None)
   .close()                        # subclass hook, releases owned resources
   .target_fps                     # settable while running; None or > 0, else ValueError
   .published_count                # exact number of publishes so far
+  .last_input                     # the item last handed to process(); set before it runs
   .last_error                     # last exception raised by process(), if any
 
 Module[TIn, TOut: Result](Stage)  # a Stage whose output is a perception Result
@@ -212,6 +214,36 @@ HaGRID.
 
 `threshold` and `target_fps` are plain attributes you can retune while the module runs.
 
+### Snapshot
+
+```
+save_frame(frame: Frame | None, path) -> Path
+save_crops(result: HandResult | None, path) -> tuple[Path | None, ...]
+save_input(stage: Stage, path) -> Path | tuple[Path | None, ...]
+```
+
+Pure functions over a node's newest output (`latest()`) or newest input (`last_input`),
+meant to be called right where you read those (main thread, request handler, agent loop),
+never from a worker:
+
+```python
+from vision_modules import save_frame, save_crops, save_input
+
+f = provider.latest()
+save_frame(f, f"out/{f.frame_id:06d}.png")  # full BGR frame, format by suffix
+paths = save_crops(
+    hands.latest(), "out/hand.png"
+)  # hand_0.png, hand_1.png, ... aligned with .hands
+save_input(hands, "out/hand_in.png")  # the frame the hand stage last detected on
+save_input(gestures, "out/gesture_in.png")  # the crop(s) the classifier last classified
+```
+
+`save_input` is how a module that publishes no pixels (`GestureClassifier`) gets its
+"current frame": the exact input it last processed, pinned by the stage itself, so it stays
+right even when the upstream has already moved on. `None` (nothing published or processed
+yet) raises `ValueError`; missing directories are created; an unsupported suffix raises
+before anything is written.
+
 ### Writing your own module
 
 Subclass `Module`, pick an upstream, implement `process()`, and return a frozen `Result`
@@ -268,7 +300,9 @@ Open the printed URL and grant the browser camera access. Flags: `--mirror`, `--
 The page shows the raw feed, the same frame with a box per detected hand, and the first hand's
 full per-class score breakdown with the validated label marked. Sliders retune the threshold
 and both stages' target fps live, and a readout shows each stage's real achieved fps next to
-its target. The demo needs the `demo` dependency group, which `uv sync --dev` installs; it is
+its target. Two buttons save what the hand stage and the classifier last consumed (the full
+frame, the classified crop) as `snapshot_<stage>_<timestamp>.jpg` in a folder you pick, the
+script's own directory by default. The demo needs the `demo` dependency group, which `uv sync --dev` installs; it is
 not part of the package.
 
 ## Development

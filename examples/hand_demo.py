@@ -7,6 +7,10 @@ specs/hand_demo.md for the design.
 import argparse
 import threading
 import time
+from datetime import UTC, datetime
+from os import PathLike
+from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -18,8 +22,12 @@ from vision_modules import (
     HandStage,
     LatestValue,
     Pipeline,
+    Stage,
     StreamProvider,
+    save_input,
 )
+
+DEMO_DIR = Path(__file__).resolve().parent  # default snapshot folder
 
 
 class PushFrameSource:
@@ -108,6 +116,33 @@ def summarize(hr: HandResult | None, gesture: Gesture | None) -> dict[str, float
     }
 
 
+def snapshot_path(folder: str | PathLike[str], stage_name: str, now: datetime) -> Path:
+    """`<folder>/snapshot_<stage name>_<YYYYMMDDHHMMSS>.jpg` (local wall-clock time)."""
+    return Path(folder) / f"snapshot_{stage_name}_{now:%Y%m%d%H%M%S}.jpg"
+
+
+def save_snapshot(
+    stage: Stage[Any, Any], folder: str | PathLike[str], now: datetime | None = None
+) -> str:
+    """Save what `stage` last consumed (`save_input`) into `folder`; return a
+    one-line status for the UI instead of raising, so a click can never error out."""
+    if now is None:
+        now = datetime.now(tz=UTC).astimezone()  # aware, in the machine's local zone
+    target = snapshot_path(folder, stage.name, now)
+    try:
+        written = save_input(stage, target)
+    except (ValueError, TypeError, OSError) as exc:
+        return f"⚠️ {stage.name}: {exc}"
+    paths = (
+        [written]
+        if isinstance(written, Path)
+        else [p for p in written if p is not None]
+    )
+    if not paths:
+        return f"⚠️ {stage.name}: no crop to save (no hand in its last input)"
+    return "Saved " + ", ".join(f"`{p}`" for p in paths)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Browser hand-gesture demo")
     parser.add_argument("--mirror", action="store_true")
@@ -148,6 +183,12 @@ def main() -> None:
 
     def on_classifier_fps_change(value: float) -> None:
         gestures.target_fps = value
+
+    def on_save_detector(folder: str) -> str:
+        return save_snapshot(hands, folder)
+
+    def on_save_classifier(folder: str) -> str:
+        return save_snapshot(gestures, folder)
 
     stream_fps_meter = FpsMeter()
     hand_fps_meter = FpsMeter()
@@ -194,6 +235,13 @@ def main() -> None:
             )
         fps_display = gr.Markdown("Hand stage: — fps &nbsp;·&nbsp; Classifier: — fps")
         with gr.Row():
+            snapshot_folder = gr.Textbox(
+                value=str(DEMO_DIR), label="Snapshot folder", scale=3
+            )
+            save_detector = gr.Button("Save detector snapshot", scale=1)
+            save_classifier = gr.Button("Save classifier snapshot", scale=1)
+        snapshot_status = gr.Markdown("")
+        with gr.Row():
             with gr.Column():
                 cam_in = gr.Image(sources=["webcam"], streaming=True, label="Input")
             with gr.Column():
@@ -216,6 +264,12 @@ def main() -> None:
             stream_every=1 / args.hand_fps,
         )
         gr.Timer(1.0).tick(fn=on_fps_tick, outputs=fps_display)
+        save_detector.click(
+            on_save_detector, inputs=snapshot_folder, outputs=snapshot_status
+        )
+        save_classifier.click(
+            on_save_classifier, inputs=snapshot_folder, outputs=snapshot_status
+        )
 
     with Pipeline([provider, hands, gestures]):
         demo.launch()

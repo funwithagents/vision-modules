@@ -11,10 +11,11 @@ Vision Modules is a library of independent vision modules that run over a video 
 | [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, layout conventions, feature-named dependency extras | Implemented |
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier | Implemented |
 | [stream.md](stream.md) | Stream: single capture entry point (`StreamProvider`), `Frame` shape, frame-ownership rules, injectable `FrameSource`, measured vs. nominal fps | Implemented |
-| [pipeline.md](pipeline.md) | Pipeline: staged-graph runtime — latest-value sampling, `Stage`/`Module` base classes, `Result` contract, lifecycle and threading rules | Implemented |
+| [pipeline.md](pipeline.md) | Pipeline: staged-graph runtime — latest-value sampling, `Stage`/`Module` base classes, `last_input`, `Result` contract, lifecycle and threading rules | Implemented |
 | [hand.md](hand.md) | Hand: shared hand stage (`HandStage`/`HandResult`) detecting and cropping hands once per frame behind a boxes-only `HandDetector` seam | Implemented |
 | [gesture_classifier.md](gesture_classifier.md) | Gesture classifier module: named gestures from the hand crop via an `ImageClassifier` seam (HaGRID ViT shipped) | Implemented |
-| [hand_demo.md](hand_demo.md) | Hand demo: the `examples/hand_demo.py` Gradio browser app wiring the pipeline end-to-end | Implemented |
+| [hand_demo.md](hand_demo.md) | Hand demo: the `examples/hand_demo.py` Gradio browser app wiring the pipeline end-to-end, with per-module snapshot buttons | Implemented |
+| [snapshot.md](snapshot.md) | Snapshot: `save_frame` / `save_crops` / `save_input` — caller-side functions writing what a node last published or last consumed to a local image file | Implemented |
 
 Each spec also opens with a YAML **frontmatter** block declaring the `code:` and `tests:` files it governs — the spec → code/tests mapping the spec-drift checks use to scope what they compare. Keep it current when files move, and see [AGENTS.md](../AGENTS.md) ("Spec frontmatter") for the full convention.
 

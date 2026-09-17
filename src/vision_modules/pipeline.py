@@ -59,6 +59,7 @@ class Stage[TIn: HasFrameId, TOut: HasFrameId]:
         self.last_error: BaseException | None = None
         self.published_count = 0
         self._slot: LatestValue[TOut] = LatestValue()
+        self._input_slot: LatestValue[TIn] = LatestValue()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -91,6 +92,12 @@ class Stage[TIn: HasFrameId, TOut: HasFrameId]:
     def latest(self) -> TOut | None:
         return self._slot.get()
 
+    @property
+    def last_input(self) -> TIn | None:
+        """The item most recently handed to process() — set before it runs, so it
+        is the offending input while process() is failing; carries over restarts."""
+        return self._input_slot.get()
+
     def process(self, item: TIn) -> TOut | None:
         raise NotImplementedError
 
@@ -115,6 +122,9 @@ class Stage[TIn: HasFrameId, TOut: HasFrameId]:
             item = self._upstream.latest()
             if item is not None and item.frame_id != _last_id:
                 _last_id = item.frame_id
+                self._input_slot.publish(
+                    item
+                )  # a reference: published values are immutable
                 try:
                     out = self.process(item)
                 except Exception as exc:  # spec: errors never kill the graph

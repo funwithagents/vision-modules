@@ -37,7 +37,8 @@ Classification text drawn on the video (the original design) was hard to read ov
 
 1. **Three `gr.Slider`s in a `gr.Row`**, above the columns below — threshold (0–1, default `--threshold`), hand stage target fps and classifier target fps (defaults `--hand-fps`/`--classifier-fps`, both sharing one range, 1–`max(30, --hand-fps, --classifier-fps)`, so the two are visually and numerically comparable on the same scale). Each `.change()` handler writes straight to a mutable attribute the worker thread reads fresh every loop iteration — `gestures.threshold`, `hands.target_fps`, `gestures.target_fps` — so every one of them retunes the running pipeline live, no restart. (This is exactly [pipeline.md](pipeline.md)'s `Stage.target_fps`, a settable attribute the worker re-reads every iteration and never caches — nothing pipeline-side had to change to make it live-adjustable. It rejects non-positive values, which the sliders' floor of 1 never produces.)
    - The hand-fps slider only raises the *ceiling* `HandStage` computes against; it can't get more frames out of the browser than `stream_every` (fixed at launch, see below) delivers, so raising it past the launch value won't raise the achieved rate — the fps readout below shows the real, capped number either way.
-2. **Three columns in a `gr.Row`:**
+2. **Snapshot row** (`gr.Row`): a `gr.Textbox` holding the snapshot folder, pre-filled with the directory of `hand_demo.py` itself (`DEMO_DIR = Path(__file__).resolve().parent`), then two `gr.Button`s — **Save detector snapshot** and **Save classifier snapshot** — and a `gr.Markdown` status line under the row. See "Snapshots" below.
+3. **Three columns in a `gr.Row`:**
    - **Input** — `gr.Image(sources=["webcam"], streaming=True)`, the raw browser feed, untouched.
    - **Detected** — a second, output-only `gr.Image`: a copy of the same frame with only a green rectangle per detected hand drawn on it (`HandResult.hands[i].bbox`) — no text on the image itself.
    - **Classifications** — a single `gr.Label`, the first hand's full per-class score breakdown (`HandGesture.scores`). `gr.Label` sorts by score, so the top class is always the top row; when it also cleared `threshold` (`HandGesture.label` is not `None`), its key is prefixed with a checkmark so the validated call is visually distinguished from "just the highest score" without a second component. Placeholder single-entry dicts (`{"no hand": 1.0}`, `{"...": 1.0}`) stand in for "nothing to classify yet" / "hand present, classifier hasn't caught up".
@@ -45,6 +46,15 @@ Classification text drawn on the video (the original design) was hard to read ov
 Only the **first** hand's classification is shown in the panel (`Gesture.first`) — a v1 simplification for the demo's default single-hand case (see Open questions).
 
 `cam_in.stream(fn=on_frame, inputs=cam_in, outputs=[cam_out, scores], stream_every=1 / args.hand_fps)` drives the loop; `on_frame` reads the raw frame from `cam_in` and returns `(annotated_frame, score_dict)` for the other two components. `stream_every` matters: it caps how often the browser is even allowed to hand the server a frame, independent of every `target_fps` downstream, and Gradio's own default (`0.5`, i.e. 2 fps) would silently bottleneck the whole pipeline below `--hand-fps` regardless of its value — so it's set from `--hand-fps` instead of left at the default.
+
+### Snapshots
+
+Each button saves what its module **last consumed** — `save_input` from [snapshot.md](snapshot.md) over `Stage.last_input` ([pipeline.md](pipeline.md)) — so the detector button writes the full frame `HandStage` last ran detection on and the classifier button writes the crop(s) `GestureClassifier` last classified. It is deliberately the input, not the output: the classifier publishes labels only, and re-reading `hands.latest()` at click time would usually give a newer crop than the one behind the label on screen.
+
+- **File name:** `snapshot_<stage name>_<YYYYMMDDHHMMSS>.jpg` in the folder from the text box — `snapshot_HandStage_20260917030709.jpg`, and for the classifier `snapshot_GestureClassifier_20260917030709_0.jpg`: `save_crops` inserts the hand index before the suffix so the name stays index-aligned with `HandResult.hands` (one file per hand when `max_hands > 1`). The stage name is `Stage.name` (the class name by default); the time is wall-clock `datetime.now()` at the click, to the second — two clicks within the same second overwrite each other, an accepted limitation for a manual button. JPEG because these are quick visual snapshots, not a dataset; the library's `save_*` follow the suffix, so switching to `.png` is a one-character change.
+- **Folder:** Gradio has no folder-picker component, so the folder is a plain path text box; missing directories are created by `save_input` itself. The default (the script's own directory) means a fresh checkout saves next to `hand_demo.py` without any setup.
+- **Never raises into the UI.** `save_snapshot(stage, folder, now=None) -> str` wraps the call and returns a one-line status the `gr.Markdown` shows: the saved path(s) on success; a warning when the stage has not processed anything yet (`ValueError`), when the classifier's last input had no hand (an empty `HandResult` writes no file), or when the write fails (`OSError`). `snapshot_path(folder, stage_name, now) -> Path` is the pure naming helper; both take `now` explicitly so tests pin the file name.
+- Runs on Gradio's request thread, reading `last_input` only — exactly the "caller thread, never a worker" rule of [snapshot.md](snapshot.md); the pipeline is untouched.
 
 ### Real vs. target fps
 
@@ -68,7 +78,7 @@ The demo measures and displays the *actual* rate of every node, stream included,
 
 ### Tests
 
-The demo is an application, so it has no live test of its own, but its pure pieces — `PushFrameSource`, `FpsMeter`, `summarize` — are unit-tested in `tests/test_hand_demo.py` (the `examples/` directory is on pytest's `pythonpath` and in pyright's scope, see [project.md](project.md)). The pipeline wiring it uses is covered end to end by `tests-e2e/test_hand_pipeline_live.py`.
+The demo is an application, so it has no live test of its own, but its pure pieces — `PushFrameSource`, `FpsMeter`, `summarize`, `snapshot_path`, `save_snapshot` (driven through a real `HandStage` / `GestureClassifier` with scripted backends) — are unit-tested in `tests/test_hand_demo.py` (the `examples/` directory is on pytest's `pythonpath` and in pyright's scope, see [project.md](project.md)). The pipeline wiring it uses is covered end to end by `tests-e2e/test_hand_pipeline_live.py`.
 
 ## Open questions
 

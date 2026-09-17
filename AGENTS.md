@@ -28,6 +28,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | [`pipeline.py`](src/vision_modules/pipeline.py) | Staged-graph runtime: `LatestValue`, `Stage`, `Module`, `Result`, `Pipeline` lifecycle | [specs/pipeline.md](specs/pipeline.md) |
 | [`hand.py`](src/vision_modules/hand.py) | `HandStage` — shared detect + crop once per frame, `HandResult`, `HandDetector` seam | [specs/hand.md](specs/hand.md) |
 | [`gesture_classifier.py`](src/vision_modules/gesture_classifier.py) | `GestureClassifier` module — named gestures from the crop, `ImageClassifier` seam | [specs/gesture_classifier.md](specs/gesture_classifier.md) |
+| [`snapshot.py`](src/vision_modules/snapshot.py) | `save_frame` / `save_crops` — write a node's newest `Frame` / `HandResult` crops to a local image file, caller-side | [specs/snapshot.md](specs/snapshot.md) |
 
 **Keep this map current:** when you add, rename, or remove a top-level `src/vision_modules/` module or a root directory, update the map in the same change — same discipline as keeping spec/plan statuses honest (below). A test (`tests/test_project_map.py`) enforces that every `src/vision_modules/*.py` module appears here and vice-versa — and that the spec frontmatter (see below) stays honest too.
 
