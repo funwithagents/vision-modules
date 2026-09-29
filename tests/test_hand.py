@@ -1,7 +1,9 @@
 import threading
 import time
+from dataclasses import dataclass
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 import vision_modules.hand as hand_module
@@ -52,6 +54,25 @@ def make_frame(frame_id: int, w: int = 64, h: int = 48) -> Frame:
     img = np.zeros((h, w, 3), np.uint8)
     img[..., 0] = np.arange(w)
     return Frame(frame_id, float(frame_id), img)
+
+
+@dataclass(frozen=True)
+class ForeignFrame:
+    """A host's own frame class: same three members as Frame, no relation to it."""
+
+    frame_id: int
+    ts: float
+    image: npt.NDArray[np.uint8]
+
+
+class ForeignFeed:
+    """A host's own latest-value slot, publishing ForeignFrame, never Frame."""
+
+    def __init__(self) -> None:
+        self.frame: ForeignFrame | None = None
+
+    def latest(self) -> ForeignFrame | None:
+        return self.frame
 
 
 A = DetectedHand((0.0, 0.0, 0.4, 0.4), 0.5)  # area 0.16
@@ -189,6 +210,33 @@ def test_stage_publishes_a_copied_crop_matching_the_bbox() -> None:
         assert np.array_equal(h.crop, frame.image[12:36, 16:48])
         assert not np.shares_memory(h.crop, frame.image)
         assert h.score == 0.9
+    finally:
+        stage.stop()
+
+
+def test_stage_accepts_a_foreign_frame_class_from_a_foreign_slot() -> None:
+    # The stage reads frame_id, ts and image, and declares exactly that
+    # (FrameLike). A host's own frame class and slot are a valid upstream as
+    # they stand: this file is type-checked, so `HandStage(feed, ...)` is also
+    # the static assertion that ForeignFeed is an Upstream[FrameLike].
+    detector = ScriptedDetector((DetectedHand((0.25, 0.25, 0.75, 0.75), 0.9),))
+    img = np.zeros((48, 64, 3), np.uint8)
+    img[..., 1] = np.arange(48)[:, None]
+    feed = ForeignFeed()
+    feed.frame = ForeignFrame(frame_id=7, ts=123.5, image=img)
+    stage = HandStage(feed, target_fps=None, pad=0.0, detector=detector)
+    stage.start()
+    try:
+        wait_until(lambda: stage.latest() is not None)
+        r = stage.latest()
+        assert r is not None and r.first is not None
+        assert (r.frame_id, r.ts) == (7, 123.5)  # copied from the foreign frame
+        assert detector.calls == [123.5]  # and handed to the detector as-is
+        assert r.first.bbox == (16, 12, 48, 36)
+        assert r.first.crop is not None
+        assert np.array_equal(r.first.crop, img[12:36, 16:48])
+        assert not np.shares_memory(r.first.crop, img)
+        assert stage.last_input is feed.frame
     finally:
         stage.stop()
 

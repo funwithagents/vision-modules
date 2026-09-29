@@ -35,7 +35,8 @@ StreamProvider                 (root: capture thread, publishes the latest Frame
 
 - **`LatestValue[T]`** — one lock-protected slot. `publish(value)` replaces the slot; `get() -> T | None` returns the current value. Single writer, any number of readers. No queue, no backlog: a slow consumer sees the newest value and never falls behind.
 - **Stale skip.** Every consumer remembers the `frame_id` of the last item it processed and skips when `latest()` returns the same one. A consumer that out-paces its upstream idles instead of reprocessing.
-- **Every published value carries `frame_id` and `ts`** from the originating `Frame`, so results from different modules can be matched ("fused") on the same input frame by the consumer.
+- **Every published value carries `frame_id` and `ts`** from the originating frame, so results from different modules can be matched ("fused") on the same input frame by the consumer.
+- **A stage names the protocol of what it reads, never the class of what a particular provider publishes.** The runtime is structural end to end: an upstream is anything with `latest()`, an item is anything with `frame_id`. Concrete stages keep that property by typing their input as a protocol — a frame consumer is `Stage[FrameLike, …]` over an `Upstream[FrameLike]` ([stream.md](stream.md)), never `Stage[Frame, …]` — so a host with its own frame class and its own latest-value slot can feed the shipped stages without re-publishing through `StreamProvider`.
 
 ### `Stage` — the generic node
 

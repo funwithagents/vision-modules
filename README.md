@@ -17,7 +17,7 @@ is the job of the robot or agent consuming the results.
 
 | Concept | Public API | Role | Spec |
 |---|---|---|---|
-| Stream | `StreamProvider`, `Frame`, `FrameSource`, `OpenCVSource` | Single capture entry point: one thread reads a webcam, video file, URL, or injected source and publishes the newest frame | [specs/stream.md](specs/stream.md) |
+| Stream | `StreamProvider`, `Frame`, `FrameLike`, `FrameSource`, `OpenCVSource` | Single capture entry point: one thread reads a webcam, video file, URL, or injected source and publishes the newest frame | [specs/stream.md](specs/stream.md) |
 | Pipeline | `Stage`, `Module`, `Result`, `Pipeline`, `LatestValue`, `Upstream` | Staged-graph runtime: latest-value sampling, per-node threads and framerates, ordered start/stop | [specs/pipeline.md](specs/pipeline.md) |
 | Hand | `HandStage`, `HandResult`, `Hand`, `HandDetector`, `DetectedHand`, `MediaPipeHandDetector` | Shared stage: detects and crops hands **once per frame** for every hand-based module | [specs/hand.md](specs/hand.md) |
 | Gesture classifier | `GestureClassifier`, `Gesture`, `HandGesture`, `ImageClassifier`, `HaGRIDViTClassifier`, `select_device` | Perception module: names the gesture in each hand crop (18 HaGRID classes) | [specs/gesture_classifier.md](specs/gesture_classifier.md) |
@@ -138,6 +138,28 @@ StreamProvider(source: int | str | FrameSource = 0, *, mirror: bool = False)
 capture), `image` (`(H, W, 3)` `uint8` **BGR**, OpenCV's native order). BGR is the in-library
 convention; consumers convert as needed and get a new array.
 
+`FrameLike` is the protocol frame consumers are typed against — the same three members,
+declared as read-only properties. `HandStage` takes any `Upstream[FrameLike]`, and
+`save_frame` / `save_input` accept any `FrameLike`, so a host that already has a frame
+class and a latest-value slot of its own (a robot's camera reader, a ROS topic, a dataset
+reader) feeds the shipped stages directly, pyright-clean, without re-publishing its frames
+through a second `StreamProvider`:
+
+```python
+@dataclass(frozen=True)
+class CameraFrame:  # yours; imports nothing from vision_modules
+    frame_id: int
+    ts: float
+    image: npt.NDArray[np.uint8]  # (H, W, 3) BGR
+
+
+class CameraFeed:  # yours; anything with latest()
+    def latest(self) -> CameraFrame | None: ...
+
+
+hands = HandStage(CameraFeed(), target_fps=30)  # an Upstream[FrameLike]
+```
+
 `FrameSource` is the seam for injecting frames without a camera:
 
 ```python
@@ -230,7 +252,7 @@ HaGRID.
 ### Snapshot
 
 ```
-save_frame(frame: Frame | None, path) -> Path
+save_frame(frame: FrameLike | None, path) -> Path
 save_crops(result: HandResult | None, path) -> tuple[Path | None, ...]
 save_input(stage: Stage, path) -> Path | tuple[Path | None, ...]
 ```

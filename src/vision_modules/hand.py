@@ -14,7 +14,7 @@ from typing import Literal, Protocol
 import numpy as np
 
 from vision_modules.pipeline import Result, Stage, Upstream
-from vision_modules.stream import Frame
+from vision_modules.stream import FrameLike
 
 log = logging.getLogger(__name__)
 
@@ -134,10 +134,10 @@ def padded_box(
     return (int(max(0, x0)), int(max(0, y0)), int(min(width, x1)), int(min(height, y1)))
 
 
-class HandStage(Stage[Frame, HandResult]):
+class HandStage(Stage[FrameLike, HandResult]):
     def __init__(
         self,
-        provider: Upstream[Frame],
+        provider: Upstream[FrameLike],
         target_fps: float | None = 30,
         pad: float = 0.35,
         max_hands: int = 2,
@@ -171,7 +171,7 @@ class HandStage(Stage[Frame, HandResult]):
             self._owned = MediaPipeHandDetector(num_hands=self.max_hands)
         return self._owned
 
-    def process(self, item: Frame) -> HandResult:
+    def process(self, item: FrameLike) -> HandResult:
         frame = item
         found = self._detector().detect(frame.image, frame.ts)
         selected = select_hands(

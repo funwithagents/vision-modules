@@ -5,6 +5,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from vision_modules import (
@@ -37,6 +38,23 @@ def gradient(w: int = 40, h: int = 30) -> np.ndarray:
 
 def frame(frame_id: int = 1, img: np.ndarray | None = None) -> Frame:
     return Frame(frame_id, float(frame_id), gradient() if img is None else img)
+
+
+@dataclass(frozen=True)
+class ForeignFrame:
+    """A host's own frame class — a FrameLike that is not a Frame."""
+
+    frame_id: int
+    ts: float
+    image: npt.NDArray[np.uint8]
+
+
+class ForeignFeed:
+    def __init__(self, frame: ForeignFrame) -> None:
+        self.frame = frame
+
+    def latest(self) -> ForeignFrame | None:
+        return self.frame
 
 
 def hand(
@@ -133,6 +151,14 @@ def test_save_frame_png_round_trips_pixels_exactly(tmp_path: Path) -> None:
     assert back.shape == img.shape
     assert np.array_equal(back, img)
     assert np.array_equal(img, before), "saving must not touch the shared frame buffer"
+
+
+def test_save_frame_accepts_a_foreign_frame_class(tmp_path: Path) -> None:
+    img = gradient().astype(np.uint8)
+    out = save_frame(ForeignFrame(3, 3.0, img), tmp_path / "foreign.png")
+    back = cv2.imread(str(out), cv2.IMREAD_COLOR)
+    assert back is not None
+    assert np.array_equal(back, img)
 
 
 def test_save_frame_creates_missing_parent_directories(tmp_path: Path) -> None:
@@ -305,6 +331,25 @@ def test_save_input_keeps_the_classifiers_own_input_after_the_upstream_moved_on(
     g = gestures.latest()
     assert g is not None and gestures.last_input is not None
     assert g.frame_id == gestures.last_input.frame_id == 1  # output and input match
+
+
+def test_save_input_writes_a_foreign_frame_a_stage_consumed(tmp_path: Path) -> None:
+    # save_input recognises a frame by shape (FrameLike), not by class: a
+    # HandStage fed from a host's own slot still gets its input saved.
+    img = gradient(64, 48).astype(np.uint8)
+    feed = ForeignFeed(ForeignFrame(9, 9.0, img))
+    detector = ScriptedDetector(())
+    hands = HandStage(feed, target_fps=None, detector=detector)
+    hands.start()
+    try:
+        wait_until(lambda: hands.last_input is not None)
+        out = save_input(hands, tmp_path / "foreign_input.png")
+    finally:
+        hands.stop()
+    assert out == tmp_path / "foreign_input.png"
+    back = cv2.imread(str(out), cv2.IMREAD_COLOR)
+    assert back is not None
+    assert np.array_equal(back, img)
 
 
 def test_save_input_before_any_process_call_raises(tmp_path: Path) -> None:

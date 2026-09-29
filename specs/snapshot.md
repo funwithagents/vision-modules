@@ -22,10 +22,10 @@ Every value with pixels the library publishes is one of two types, and every sta
 | Node | Publishes (`latest()`) | Pixels in it | Consumes (`last_input`) | Pixels in it |
 |---|---|---|---|---|
 | `StreamProvider` | `Frame` | `image` — full BGR frame | — (root, no upstream) | — |
-| `HandStage` | `HandResult` | `hands[i].crop` — one BGR copy per hand (`None` for a zero-area box) | `Frame` | the full frame it detected on |
+| `HandStage` | `HandResult` | `hands[i].crop` — one BGR copy per hand (`None` for a zero-area box) | a `FrameLike` (`Frame` from `StreamProvider`, or a host's own frame) | the full frame it detected on |
 | `GestureClassifier` | `Gesture` | none — labels and scores only | `HandResult` | the crop(s) it classified |
 
-- **Output view** — `save_frame` writes a `Frame`, `save_crops` writes a `HandResult`. Pass `provider.latest()` / `hands.latest()` straight in.
+- **Output view** — `save_frame` writes a frame (any `FrameLike`, [stream.md](stream.md)), `save_crops` writes a `HandResult`. Pass `provider.latest()` / `hands.latest()` straight in.
 - **Input view** — `save_input(stage, path)` reads `stage.last_input` and dispatches on its type to one of the two writers. This is how a module that publishes no pixels (`GestureClassifier`, any future label-only module) gets its "current frame": the input it last consumed, pinned by the stage itself rather than re-read from the upstream. Re-reading the upstream's `latest()` and matching `frame_id` is **not** equivalent — a 5 fps classifier under a 30 fps hand stage will find the upstream has moved on five times out of six ([pipeline.md](pipeline.md) "`last_input`").
 
 No image field is added to `Gesture` for this: modules keep reporting perception only, and the shared stage keeps owning the pixels ([hand.md](hand.md)).
@@ -33,16 +33,16 @@ No image field is added to `Gesture` for this: modules keep reporting perception
 ### API
 
 ```
-save_frame(frame: Frame | None, path: str | PathLike[str]) -> Path
+save_frame(frame: FrameLike | None, path: str | PathLike[str]) -> Path
 save_crops(result: HandResult | None, path: str | PathLike[str]) -> tuple[Path | None, ...]
 save_input(stage: Stage, path: str | PathLike[str]) -> Path | tuple[Path | None, ...]
 ```
 
-- **`save_frame`** writes `frame.image` to `path` and returns the path it wrote, as a `Path`. `frame` is typed `Frame | None` so a caller can pass `provider.latest()` straight in; `None` (nothing published yet) raises `ValueError` — silently writing nothing would hide the one state a caller most needs to notice.
+- **`save_frame`** writes `frame.image` to `path` and returns the path it wrote, as a `Path`. `frame` is typed `FrameLike | None` so a caller can pass `provider.latest()` — or a foreign feed's `latest()` — straight in; `None` (nothing published yet) raises `ValueError` — silently writing nothing would hide the one state a caller most needs to notice.
 - **`save_crops`** writes one file per hand in `result.hands`, and returns a tuple **index-aligned with `result.hands`** (the per-subject tuple rule of [pipeline.md](pipeline.md)): the written `Path` for a hand with a crop, `None` for a hand whose `crop` is `None`. `path` names the file for the first hand; hand *i* gets the index inserted before the suffix — `crop.png` → `crop_0.png`, `crop_1.png`, … — so the file names are stable whatever `max_hands` is. An empty result (`present=False`) writes nothing and returns `()`. `None` raises `ValueError`, as above.
 - **Format follows the suffix**, via OpenCV's writer (`.png`, `.jpg`, `.bmp`, `.tiff`, …). Arrays are BGR — the library's canonical order ([stream.md](stream.md)) and exactly what `cv2.imwrite` expects — so **no color conversion happens anywhere in this module**; a PNG round-trips pixel-exact. An unsupported suffix raises `ValueError` before anything is touched on disk (checked with `cv2.haveImageWriter`).
 - **Missing parent directories are created** (`mkdir(parents=True, exist_ok=True)`): a snapshot is a debugging aid and shouldn't fail because `out/` doesn't exist yet. A write that still fails (permissions, disk) raises `OSError` naming the path — `cv2.imwrite`'s `False` return is never swallowed.
-- **`save_input`** writes `stage.last_input`: a `Frame` exactly as `save_frame` would (returning the `Path`), a `HandResult` exactly as `save_crops` would (returning the index-aligned tuple) — the return shape follows the stage's input type, which a caller wiring the graph knows. A stage that has not processed anything yet raises `ValueError`; an input type this module has no writer for (a custom stage consuming a custom value) raises `TypeError`. The dispatch is a closed `isinstance` chain over the library's own two pixel-bearing types — a third such type is added here, in the same change that introduces it.
+- **`save_input`** writes `stage.last_input`: a frame exactly as `save_frame` would (returning the `Path`), a `HandResult` exactly as `save_crops` would (returning the index-aligned tuple) — the return shape follows the stage's input type, which a caller wiring the graph knows. A stage that has not processed anything yet raises `ValueError`; an input type this module has no writer for (a custom stage consuming a custom value) raises `TypeError`. The dispatch is an `isinstance` chain: **structural** for frames (`isinstance(item, FrameLike)`, the `@runtime_checkable` protocol from [stream.md](stream.md), so a host's own frame class is written like a `Frame`), **nominal** for `HandResult` (the library's own type). A third pixel-bearing type is added here, in the same change that introduces it.
 - **Naming is the caller's.** The functions take a full file path; anyone saving a series builds names from the value's own key, e.g. `save_frame(f, out_dir / f"{f.frame_id:06d}.png")`. `frame_id` is unique per provider (monotonic across restarts, [stream.md](stream.md)) and is the same key every downstream result carries, so a frame file and a crop file named from the same `frame_id` are trivially matched.
 
 ### Invariants

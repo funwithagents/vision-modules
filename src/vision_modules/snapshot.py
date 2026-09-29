@@ -12,7 +12,7 @@ import numpy as np
 
 from vision_modules.hand import HandResult
 from vision_modules.pipeline import Stage
-from vision_modules.stream import Frame, _import_cv2
+from vision_modules.stream import FrameLike, _import_cv2
 
 
 def _write(image: np.ndarray, path: str | PathLike[str]) -> Path:
@@ -27,7 +27,7 @@ def _write(image: np.ndarray, path: str | PathLike[str]) -> Path:
     return path
 
 
-def save_frame(frame: Frame | None, path: str | PathLike[str]) -> Path:
+def save_frame(frame: FrameLike | None, path: str | PathLike[str]) -> Path:
     """Write `frame.image` (BGR, unconverted) to `path` and return it.
 
     Accepts `provider.latest()` directly: `None` (nothing published yet) raises
@@ -66,8 +66,9 @@ def save_input(
 ) -> Path | tuple[Path | None, ...]:
     """Write the image(s) `stage` last handed to `process()` — its `last_input`.
 
-    Dispatches on the input's type: a `Frame` (e.g. `HandStage`) is written like
-    `save_frame`, a `HandResult` (e.g. `GestureClassifier`) like `save_crops`, and
+    Dispatches on the input's type: a frame — any `FrameLike`, e.g. `HandStage`'s
+    input, checked structurally — is written like `save_frame`, a `HandResult`
+    (e.g. `GestureClassifier`) like `save_crops`, and
     the matching return shape comes back. Nothing processed yet raises
     `ValueError`; an input type with no pixels this module knows raises `TypeError`.
     """
@@ -76,7 +77,7 @@ def save_input(
         raise ValueError(
             f"{stage.name} has not processed anything yet: nothing to save"
         )
-    if isinstance(item, Frame):
+    if isinstance(item, FrameLike):
         return save_frame(item, path)
     if isinstance(item, HandResult):
         return save_crops(item, path)

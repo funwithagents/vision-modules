@@ -23,6 +23,26 @@ The single entry point for video into the library. A `StreamProvider` owns one c
   - `ts: float` — capture timestamp, `time.monotonic()` taken right after the read. Monotonic (not wall-clock) so latency arithmetic inside the pipeline is immune to clock adjustments, and so it can feed MediaPipe's video mode, which requires strictly increasing timestamps ([hand.md](hand.md)).
   - `image: np.ndarray` — `(H, W, 3)` `uint8` **BGR** (OpenCV's native order). BGR is the canonical in-library format; any conversion (RGB for a model, grayscale, …) happens in the consumer and yields a new array.
 
+### `FrameLike` — the frame contract consumers type against
+
+`Frame` is the concrete class **this provider publishes**. What a frame-consuming stage *reads* is narrower and structural, and that is what it declares:
+
+```
+@runtime_checkable
+class FrameLike(HasFrameId, Protocol):   # HasFrameId from pipeline.md: frame_id
+    @property
+    def ts(self) -> float: ...
+    @property
+    def image(self) -> np.ndarray: ...    # (H, W, 3) uint8 BGR, read-only by convention
+```
+
+- **Rule:** a stage names the protocol of what it reads, never the class of what a particular provider publishes ([pipeline.md](pipeline.md)). `HandStage` is `Stage[FrameLike, HandResult]` over an `Upstream[FrameLike]` ([hand.md](hand.md)); `save_frame` / `save_input` accept any `FrameLike` ([snapshot.md](snapshot.md)). `Frame` satisfies `FrameLike` without change, so nothing changes for a caller wiring `StreamProvider` into the shipped graph.
+- **Why:** the runtime is already structural — any object with `latest()` is an `Upstream`. A host that owns a video feed (a robot's single-reader camera, a ROS topic, a GStreamer appsink, a dataset reader) has its own frame object, often with metadata `Frame` cannot carry, and its core may depend on no vision library at all. It should be able to hand that slot to a `HandStage` as it stands — not re-publish every frame through a second `StreamProvider` (a second thread, a second copy, a second `frame_id` numbering, and the loss of its own `ts`). Only the type annotation stood in the way: the stage reads exactly `frame_id`, `ts` and `image`.
+- **Members are properties, not attributes.** A protocol attribute is read-write, and pyright rejects a frozen-dataclass field (read-only) where a read-write attribute is required; a property member accepts a dataclass field, a plain attribute or a computed property alike. `HasFrameId` follows the same convention.
+- **`image` stays `np.ndarray`**, like every array in the library (`Frame.image`, `FrameSource.read`, `HandDetector.detect`, `Hand.crop`). A producer's stricter `NDArray[np.uint8]` is accepted; tightening the whole library to dtype-precise arrays is a separate, all-or-nothing decision, not taken here.
+- **`@runtime_checkable`** so `save_input` can recognise a frame by shape (`isinstance(item, FrameLike)` checks member *presence* only, which is what is wanted). The ownership rules below are stated for `FrameLike`: they bind every producer of a frame, not just this provider.
+- Lives in `stream.py` next to `Frame` — not in `pipeline.py`, which stays image-agnostic — and is exported from the package root.
+
 ### API
 
 ```
@@ -73,7 +93,7 @@ Neither replaces the other: `source_fps` is what to *expect* (and the right valu
 ### Frame ownership (subtle — get right)
 
 - **Frames are passed by reference, never copied, by the provider.** `read()` allocates a fresh array per call; the provider only rebinds and never mutates in place, so a consumer holding frame *N* stays valid as the provider advances.
-- **Consumers treat `Frame.image` as read-only.** Read-only use is zero-copy and safe (`cv2.cvtColor`, `cv2.flip`, `PIL.Image.fromarray` all read only). In-place mutation corrupts every other holder — watch for draw ops (`cv2.putText`, `cv2.rectangle`), slice assignment (`img[:] = …`) and `dst=` arguments. Anything that draws copies first.
+- **Consumers treat `image` as read-only** — on a `Frame` or on any other `FrameLike` a host publishes. Read-only use is zero-copy and safe (`cv2.cvtColor`, `cv2.flip`, `PIL.Image.fromarray` all read only). In-place mutation corrupts every other holder — watch for draw ops (`cv2.putText`, `cv2.rectangle`), slice assignment (`img[:] = …`) and `dst=` arguments. Anything that draws copies first.
 - **Slices are views.** `image[y0:y1, x0:x1]` aliases the shared buffer; anyone publishing a sub-region (e.g. the hand crop in [hand.md](hand.md)) must `.copy()` it.
 
 ## Open questions

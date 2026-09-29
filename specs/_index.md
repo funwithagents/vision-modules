@@ -10,9 +10,9 @@ Vision Modules is a library of independent vision modules that run over a video 
 |---|---|---|
 | [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, layout conventions, numpy-only core with feature-named dependency extras (`opencv`, `hand`) | Implemented |
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier | Implemented |
-| [stream.md](stream.md) | Stream: single capture entry point (`StreamProvider`), `Frame` shape, frame-ownership rules, injectable `FrameSource`, measured vs. nominal fps | Implemented |
+| [stream.md](stream.md) | Stream: single capture entry point (`StreamProvider`), `Frame` shape and the structural `FrameLike` contract stages type against, frame-ownership rules, injectable `FrameSource`, measured vs. nominal fps | Implemented |
 | [pipeline.md](pipeline.md) | Pipeline: staged-graph runtime — latest-value sampling, `Stage`/`Module` base classes, `last_input`, `Result` contract, lifecycle and threading rules | Implemented |
-| [hand.md](hand.md) | Hand: shared hand stage (`HandStage`/`HandResult`) detecting, selecting (`max_hands`, area rank with hysteresis, slot-stable order) and cropping hands once per frame behind a boxes-only `HandDetector` seam | Implemented |
+| [hand.md](hand.md) | Hand: shared hand stage (`HandStage`/`HandResult`) detecting, selecting (`max_hands`, area rank with hysteresis, slot-stable order) and cropping hands once per frame behind a boxes-only `HandDetector` seam, over any `Upstream[FrameLike]` | Implemented |
 | [gesture_classifier.md](gesture_classifier.md) | Gesture classifier module: named gestures from the hand crop via an `ImageClassifier` seam (HaGRID ViT shipped) | Implemented |
 | [hand_demo.md](hand_demo.md) | Hand demo: the `examples/hand_demo.py` Gradio browser app wiring the pipeline end-to-end, with one colour-linked classification panel per hand and per-module snapshot buttons | Implemented |
 | [snapshot.md](snapshot.md) | Snapshot: `save_frame` / `save_crops` / `save_input` — caller-side functions writing what a node last published or last consumed to a local image file | Implemented |

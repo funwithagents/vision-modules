@@ -1,7 +1,8 @@
 """Vision Modules — modular perception over a video stream.
 
 Public API: everything a consumer needs to wire the shipped graph, write a
-custom stage (`Stage`/`Module`/`Upstream`/`Result`) or plug a custom backend
+custom stage (`Stage`/`Module`/`Upstream`/`Result`), feed the shipped stages from
+a frame slot of their own (`FrameLike`) or plug a custom backend
 (`FrameSource`, `HandDetector`/`DetectedHand`, `ImageClassifier`), plus
 `save_frame`/`save_crops`/`save_input` to snapshot what a node last published or
 last consumed to disk.
@@ -33,11 +34,18 @@ from vision_modules.pipeline import (
     Upstream,
 )
 from vision_modules.snapshot import save_crops, save_frame, save_input
-from vision_modules.stream import Frame, FrameSource, OpenCVSource, StreamProvider
+from vision_modules.stream import (
+    Frame,
+    FrameLike,
+    FrameSource,
+    OpenCVSource,
+    StreamProvider,
+)
 
 __all__ = [
     "DetectedHand",
     "Frame",
+    "FrameLike",
     "FrameSource",
     "Gesture",
     "GestureClassifier",

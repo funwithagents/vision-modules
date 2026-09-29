@@ -7,11 +7,11 @@ import threading
 import time
 from dataclasses import dataclass
 from types import ModuleType, TracebackType
-from typing import TYPE_CHECKING, Protocol, Self
+from typing import TYPE_CHECKING, Protocol, Self, runtime_checkable
 
 import numpy as np
 
-from vision_modules.pipeline import LatestValue
+from vision_modules.pipeline import HasFrameId, LatestValue
 
 if TYPE_CHECKING:
     import cv2
@@ -33,6 +33,20 @@ class Frame:
     frame_id: int
     ts: float
     image: np.ndarray
+
+
+@runtime_checkable
+class FrameLike(HasFrameId, Protocol):
+    """What a frame consumer reads: `frame_id`, `ts` and a (H, W, 3) uint8 BGR
+    `image` treated as read-only. `Frame` is the concrete class StreamProvider
+    publishes; stages type against this protocol so a host's own frame class,
+    published from its own latest-value slot, is a valid upstream as it stands.
+    Members are properties so a frozen dataclass field satisfies them."""
+
+    @property
+    def ts(self) -> float: ...
+    @property
+    def image(self) -> np.ndarray: ...
 
 
 class FrameSource(Protocol):

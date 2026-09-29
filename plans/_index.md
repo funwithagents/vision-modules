@@ -22,6 +22,7 @@ Implementation plans for Vision Modules — each plan turns a settled part of a 
 | [202609171209_demo-snapshot-buttons.md](202609171209_demo-snapshot-buttons.md) | Hand demo: snapshot folder box + "Save detector/classifier snapshot" buttons writing each module's last input as `snapshot_<stage>_<timestamp>.jpg`, with tested helpers | Done |
 | [202609171800_multi-hand-selection.md](202609171800_multi-hand-selection.md) | Multi-hand: `HandStage` `max_hands` default 2 (detected and published), area rank with hysteresis, slot-stable order via `select_hands`; demo `--max-hands` and one colour-linked panel per hand | Done |
 | [202609290956_opencv-extra.md](202609290956_opencv-extra.md) | Numpy-only core: `opencv-python` moves to an `opencv` extra, `cv2` imported lazily in `OpenCVSource.open()` and the snapshot writer, numpy `mirror`/BGR→RGB, subprocess test pinning the core | Done |
+| [202609291100_framelike.md](202609291100_framelike.md) | `FrameLike` protocol in `stream.py`; `HandStage`, `save_frame` and `save_input` typed against it instead of `Frame`, so a host's own frame class and slot feed the shipped stages pyright-clean | Done |
 
 ## Status legend
 
