@@ -21,6 +21,7 @@ Implementation plans for Vision Modules — each plan turns a settled part of a 
 | [202609170236_save-input.md](202609170236_save-input.md) | `Stage.last_input` (the item last handed to `process()`) and `save_input(stage, path)` dispatching on it, so a label-only module's input crop can be saved | Done |
 | [202609171209_demo-snapshot-buttons.md](202609171209_demo-snapshot-buttons.md) | Hand demo: snapshot folder box + "Save detector/classifier snapshot" buttons writing each module's last input as `snapshot_<stage>_<timestamp>.jpg`, with tested helpers | Done |
 | [202609171800_multi-hand-selection.md](202609171800_multi-hand-selection.md) | Multi-hand: `HandStage` `max_hands` default 2 (detected and published), area rank with hysteresis, slot-stable order via `select_hands`; demo `--max-hands` and one colour-linked panel per hand | Done |
+| [202609290956_opencv-extra.md](202609290956_opencv-extra.md) | Numpy-only core: `opencv-python` moves to an `opencv` extra, `cv2` imported lazily in `OpenCVSource.open()` and the snapshot writer, numpy `mirror`/BGR→RGB, subprocess test pinning the core | Done |
 
 ## Status legend
 

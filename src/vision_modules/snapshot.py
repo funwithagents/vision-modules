@@ -8,16 +8,16 @@ from os import PathLike
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 
 from vision_modules.hand import HandResult
 from vision_modules.pipeline import Stage
-from vision_modules.stream import Frame
+from vision_modules.stream import Frame, _import_cv2
 
 
 def _write(image: np.ndarray, path: str | PathLike[str]) -> Path:
     """Encode a BGR array to `path` by suffix; create parents; never swallow failure."""
+    cv2 = _import_cv2("writing a snapshot")
     path = Path(path)
     if not cv2.haveImageWriter(str(path)):
         raise ValueError(f"unsupported image format {path.suffix!r} for {path}")

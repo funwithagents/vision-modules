@@ -174,6 +174,23 @@ def test_mirror_flips_horizontally_into_a_new_array() -> None:
         sp.stop()
 
 
+def test_mirror_is_byte_identical_to_cv2_flip() -> None:
+    rng = np.random.default_rng(0)
+    img = rng.integers(0, 256, size=(5, 7, 3), dtype=np.uint8)
+    src = SteppedSource([img])
+    sp = StreamProvider(src, mirror=True)
+    sp.start()
+    try:
+        src.allow()
+        wait_until(lambda: sp.latest() is not None)
+        f = sp.latest()
+        assert f is not None
+        assert np.array_equal(f.image, cv2.flip(img, 1))
+        assert f.image.flags.c_contiguous
+    finally:
+        sp.stop()
+
+
 def test_ended_becomes_true_when_source_is_exhausted() -> None:
     src = SteppedSource([make_image()])
     sp = StreamProvider(src)

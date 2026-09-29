@@ -69,14 +69,21 @@ Key rules every node obeys:
 Python 3.12 or newer.
 
 ```
-pip install vision-modules            # core: numpy + opencv-python only
-pip install "vision-modules[hand]"    # + hand stage and gesture classifier
+pip install vision-modules                 # core: numpy only — stream + pipeline runtime, for a feed of your own
+pip install "vision-modules[opencv]"       # + webcams, video files, URLs, snapshots
+pip install "vision-modules[hand]"         # + hand stage and gesture classifier
+pip install "vision-modules[opencv,hand]"  # what the Quickstart below needs
 ```
 
-Runtime dependencies are split by feature. The core package needs only `numpy` and
-`opencv-python`. The `hand` extra adds `mediapipe` (hand detection) plus `torch`,
-`transformers` and `pillow` (gesture classification). A future feature family (faces, poses)
-gets its own extra, so you install only the perception you enable.
+Runtime dependencies are split by feature. The core package needs only `numpy`: it runs the
+stream and pipeline runtime over any `FrameSource` you provide, and lets you write your own
+stages. The `opencv` extra adds `opencv-python`, which `OpenCVSource` (so `StreamProvider(0)` /
+`StreamProvider("clip.mp4")`) and the snapshot functions use. Any OpenCV wheel (`-headless`,
+`-contrib`, …) provides the same `cv2` module, so if you already have one you can skip the
+extra. Without OpenCV, those two paths raise an `ImportError` naming the extra. The `hand`
+extra adds `mediapipe` (hand detection) plus `torch`, `transformers` and `pillow` (gesture
+classification). A future feature family (faces, poses) gets its own extra, so you install
+only the perception you enable.
 
 For development, `uv sync --dev` installs every extra plus the tooling and the demo's
 dependencies.

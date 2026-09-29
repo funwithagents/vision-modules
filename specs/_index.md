@@ -8,7 +8,7 @@ Vision Modules is a library of independent vision modules that run over a video 
 
 | Spec | Description | Status |
 |---|---|---|
-| [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, layout conventions, feature-named dependency extras | Implemented |
+| [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, layout conventions, numpy-only core with feature-named dependency extras (`opencv`, `hand`) | Implemented |
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier | Implemented |
 | [stream.md](stream.md) | Stream: single capture entry point (`StreamProvider`), `Frame` shape, frame-ownership rules, injectable `FrameSource`, measured vs. nominal fps | Implemented |
 | [pipeline.md](pipeline.md) | Pipeline: staged-graph runtime — latest-value sampling, `Stage`/`Module` base classes, `last_input`, `Result` contract, lifecycle and threading rules | Implemented |

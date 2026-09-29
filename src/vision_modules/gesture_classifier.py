@@ -6,7 +6,6 @@ Governed by specs/gesture_classifier.md.
 from dataclasses import dataclass
 from typing import Protocol, cast
 
-import cv2
 import numpy as np
 
 from vision_modules.hand import HandResult
@@ -113,7 +112,7 @@ class HaGRIDViTClassifier:
     def classify(self, image_bgr: np.ndarray) -> dict[str, float]:
         from PIL import Image
 
-        pil = Image.fromarray(cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB))
+        pil = Image.fromarray(np.ascontiguousarray(image_bgr[..., ::-1]))  # BGR -> RGB
         preds = self._pipe(pil, top_k=len(self._labels))
         return {p["label"]: float(p["score"]) for p in preds}
 

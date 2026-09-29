@@ -37,7 +37,8 @@ StreamProvider(source: int | str | FrameSource = 0, *, mirror: bool = False)
 ```
 
 - `source` is an `int` (OpenCV camera index), a `str` (file path / URL, opened through OpenCV), or any object satisfying the `FrameSource` protocol. `int` / `str` are wrapped in the built-in `OpenCVSource`. The device is opened in `start()` (via `source.open()`), not in the constructor, so constructing a provider has no side effects; an unopenable device raises `RuntimeError` from `start()`.
-- `mirror=True` flips every frame horizontally (`cv2.flip(img, 1)`, a new array) before publishing — the "selfie view" a webcam user expects. It is applied once here so every consumer (and the demo's display) sees the same orientation.
+- **OpenCV is optional** ([project.md](project.md)). `OpenCVSource` lives in `stream.py` and is always importable. `cv2` is imported in its `open()`, so the only thing that needs the `opencv` extra is actually opening an `int` / `str` source. Without it, `start()` raises `ImportError` naming the extra (`pip install "vision-modules[opencv]"`), and construction still succeeds with no side effects. A provider over a caller's own `FrameSource` never touches OpenCV, so the stream runs on `numpy` alone.
+- `mirror=True` flips every frame horizontally (`np.ascontiguousarray(img[:, ::-1])`: a new contiguous array, byte-identical to `cv2.flip(img, 1)`, with no OpenCV needed) before publishing — the "selfie view" a webcam user expects. It is applied once here so every consumer (and the demo's display) sees the same orientation.
 - `FrameSource` protocol — the seam that keeps the capture loop testable without a camera:
 
   ```

@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
-import cv2
 import numpy as np
 
 from vision_modules.pipeline import Result, Stage, Upstream
@@ -243,7 +242,7 @@ class MediaPipeHandDetector:
         self._last_ts_ms = -1
 
     def detect(self, image_bgr: np.ndarray, ts: float) -> tuple[DetectedHand, ...]:
-        rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        rgb = np.ascontiguousarray(image_bgr[..., ::-1])  # BGR -> RGB
         mp_img = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
         ts_ms = int(ts * 1000)
         if ts_ms <= self._last_ts_ms:

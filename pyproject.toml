@@ -11,10 +11,12 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.5.3",
-    "opencv-python>=5.0.0.93",
 ]
 
 [project.optional-dependencies]
+opencv = [
+    "opencv-python>=5.0.0.93",
+]
 hand = [
     "mediapipe>=0.10.35,<1.0",
     "pillow>=12.3.0",
@@ -31,7 +33,7 @@ demo = [
     "gradio>=6.0,<7.0",
 ]
 dev = [
-    "vision-modules[hand]",
+    "vision-modules[hand,opencv]",
     {include-group = "demo"},
     "pyright>=1.1.414",
     "pytest>=9.1.1",

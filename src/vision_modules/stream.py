@@ -6,13 +6,26 @@ Governed by specs/stream.md.
 import threading
 import time
 from dataclasses import dataclass
-from types import TracebackType
-from typing import Protocol, Self
+from types import ModuleType, TracebackType
+from typing import TYPE_CHECKING, Protocol, Self
 
-import cv2
 import numpy as np
 
 from vision_modules.pipeline import LatestValue
+
+if TYPE_CHECKING:
+    import cv2
+
+_OPENCV_HINT = 'install the opencv extra: pip install "vision-modules[opencv]"'
+
+
+def _import_cv2(feature: str) -> ModuleType:
+    """Import OpenCV on first use; it is an optional extra, not a core dependency."""
+    try:
+        import cv2
+    except ImportError as e:
+        raise ImportError(f"{feature} requires OpenCV; {_OPENCV_HINT}") from e
+    return cv2
 
 
 @dataclass(frozen=True, eq=False)
@@ -45,12 +58,15 @@ class OpenCVSource:
     def __init__(self, source: int | str) -> None:
         self._source = source
         self._cap: cv2.VideoCapture | None = None
+        self._cv2: ModuleType | None = None
         self._lock = threading.Lock()
 
     def open(self) -> None:
+        cv2 = _import_cv2("OpenCVSource")
         with self._lock:
             if self._cap is not None:
                 return
+            self._cv2 = cv2
             cap = cv2.VideoCapture(self._source)
             if not cap.isOpened():
                 cap.release()
@@ -74,9 +90,9 @@ class OpenCVSource:
         # Same lock as read(): VideoCapture.get() is no more thread-safe than
         # read(). Many webcams report 0, which is "unknown", not a rate.
         with self._lock:
-            if self._cap is None:
+            if self._cap is None or self._cv2 is None:
                 return None
-            value = self._cap.get(cv2.CAP_PROP_FPS)
+            value = self._cap.get(self._cv2.CAP_PROP_FPS)
             return value if value > 0 else None
 
 
@@ -163,7 +179,7 @@ class StreamProvider:
                     self._ended = True  # the source ran out; a stop() is not an end
                 break
             if self._mirror:
-                img = cv2.flip(img, 1)
+                img = np.ascontiguousarray(img[:, ::-1])  # new array, as cv2.flip
             self._frame_id += 1
             self.published_count += 1
             ts = time.monotonic()
