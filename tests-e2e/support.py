@@ -70,3 +70,12 @@ def two_hands_image_path() -> Path:
     if TWO_HANDS_IMAGE.exists():
         return TWO_HANDS_IMAGE
     pytest.skip("no two-hand fixture available: add tests-e2e/fixtures/two_hands.jpg")
+
+
+def face_image_path(name: str) -> Path:
+    """Path to tests-e2e/fixtures/<name>.jpg, a public-domain face photo of known
+    pose (see fixtures/README.md). Skips if absent."""
+    path = FIXTURES_DIR / f"{name}.jpg"
+    if path.exists():
+        return path
+    pytest.skip(f"no face fixture available: add tests-e2e/fixtures/{name}.jpg")

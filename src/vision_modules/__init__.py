@@ -3,11 +3,12 @@
 Public API: everything a consumer needs to wire the shipped graph, write a
 custom stage (`Stage`/`Module`/`Upstream`/`Result`), feed the shipped stages from
 a frame slot of their own (`FrameLike`) or plug a custom backend
-(`FrameSource`, `HandDetector`/`DetectedHand`, `ImageClassifier`), plus
-`save_frame`/`save_crops`/`save_input` to snapshot what a node last published or
-last consumed to disk.
+(`FrameSource`, `HandDetector`/`DetectedHand`, `FaceDetector`/`DetectedFace`,
+`ImageClassifier`), plus `save_frame`/`save_crops`/`save_input` to snapshot
+what a node last published or last consumed to disk.
 """
 
+from vision_modules.face import DetectedFace, FaceDetector, MediaPipeFaceDetector
 from vision_modules.gesture_classifier import (
     Gesture,
     GestureClassifier,
@@ -43,7 +44,9 @@ from vision_modules.stream import (
 )
 
 __all__ = [
+    "DetectedFace",
     "DetectedHand",
+    "FaceDetector",
     "Frame",
     "FrameLike",
     "FrameSource",
@@ -57,6 +60,7 @@ __all__ = [
     "HandStage",
     "ImageClassifier",
     "LatestValue",
+    "MediaPipeFaceDetector",
     "MediaPipeHandDetector",
     "Module",
     "OpenCVSource",

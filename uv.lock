@@ -2137,6 +2137,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+face-mediapipe = [
+    { name = "mediapipe" },
+]
 hand = [
     { name = "mediapipe" },
     { name = "pillow" },
@@ -2156,11 +2159,12 @@ dev = [
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },
-    { name = "vision-modules", extra = ["hand", "opencv"] },
+    { name = "vision-modules", extra = ["face-mediapipe", "hand", "opencv"] },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "mediapipe", marker = "extra == 'face-mediapipe'", specifier = ">=0.10.35,<1.0" },
     { name = "mediapipe", marker = "extra == 'hand'", specifier = ">=0.10.35,<1.0" },
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "opencv-python", marker = "extra == 'opencv'", specifier = ">=5.0.0.93" },
@@ -2168,7 +2172,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'hand'", specifier = ">=2.14.0" },
     { name = "transformers", marker = "extra == 'hand'", specifier = ">=5.17.0" },
 ]
-provides-extras = ["opencv", "hand"]
+provides-extras = ["opencv", "face-mediapipe", "hand"]
 
 [package.metadata.requires-dev]
 demo = [{ name = "gradio", specifier = ">=6.0,<7.0" }]
@@ -2177,5 +2181,5 @@ dev = [
     { name = "pyright", specifier = ">=1.1.414" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "ruff", specifier = ">=0.16.8" },
-    { name = "vision-modules", extras = ["hand", "opencv"] },
+    { name = "vision-modules", extras = ["face-mediapipe", "hand", "opencv"] },
 ]

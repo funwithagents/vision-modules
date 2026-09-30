@@ -21,6 +21,7 @@ is the job of the robot or agent consuming the results.
 | Pipeline | `Stage`, `Module`, `Result`, `Pipeline`, `LatestValue`, `Upstream` | Staged-graph runtime: latest-value sampling, per-node threads and framerates, ordered start/stop | [specs/pipeline.md](specs/pipeline.md) |
 | Hand | `HandStage`, `HandResult`, `Hand`, `HandDetector`, `DetectedHand`, `MediaPipeHandDetector` | Shared stage: detects and crops hands **once per frame** for every hand-based module | [specs/hand.md](specs/hand.md) |
 | Gesture classifier | `GestureClassifier`, `Gesture`, `HandGesture`, `ImageClassifier`, `HaGRIDViTClassifier`, `select_device` | Perception module: names the gesture in each hand crop (18 HaGRID classes) | [specs/gesture_classifier.md](specs/gesture_classifier.md) |
+| Face | `FaceDetector`, `DetectedFace`, `MediaPipeFaceDetector` | Detector seam (not a stage): faces with a box, nose, eyes, head orientation and landmarks, for a caller running its own loop | [specs/face.md](specs/face.md) |
 | Snapshot | `save_frame`, `save_crops`, `save_input` | Write what a node last published or last consumed to a local image file, from the caller's thread | [specs/snapshot.md](specs/snapshot.md) |
 | Hand demo | `examples/hand_demo.py` | Runnable Gradio browser app wiring the whole graph end to end | [specs/hand_demo.md](specs/hand_demo.md) |
 
@@ -69,10 +70,11 @@ Key rules every node obeys:
 Python 3.12 or newer.
 
 ```
-pip install vision-modules                 # core: numpy only — stream + pipeline runtime, for a feed of your own
-pip install "vision-modules[opencv]"       # + webcams, video files, URLs, snapshots
-pip install "vision-modules[hand]"         # + hand stage and gesture classifier
-pip install "vision-modules[opencv,hand]"  # what the Quickstart below needs
+pip install vision-modules                    # core: numpy only — stream + pipeline runtime, for a feed of your own
+pip install "vision-modules[opencv]"          # + webcams, video files, URLs, snapshots
+pip install "vision-modules[hand]"            # + hand stage and gesture classifier
+pip install "vision-modules[face-mediapipe]"  # + MediaPipe face detector
+pip install "vision-modules[opencv,hand]"     # what the Quickstart below needs
 ```
 
 Runtime dependencies are split by feature. The core package needs only `numpy`: it runs the
@@ -82,8 +84,10 @@ stages. The `opencv` extra adds `opencv-python`, which `OpenCVSource` (so `Strea
 `-contrib`, …) provides the same `cv2` module, so if you already have one you can skip the
 extra. Without OpenCV, those two paths raise an `ImportError` naming the extra. The `hand`
 extra adds `mediapipe` (hand detection) plus `torch`, `transformers` and `pillow` (gesture
-classification). A future feature family (faces, poses) gets its own extra, so you install
-only the perception you enable.
+classification). The `face-mediapipe` extra adds `mediapipe` for the face detector; face
+extras are named per backend (`face-<backend>`), since later face backends bring unrelated
+dependencies. Each feature family gets its own extra, so you install only the perception you
+enable.
 
 For development, `uv sync --dev` installs every extra plus the tooling and the demo's
 dependencies.
@@ -249,6 +253,34 @@ HaGRID.
 
 `threshold` and `target_fps` are plain attributes you can retune while the module runs.
 
+### Face
+
+```
+MediaPipeFaceDetector(max_faces=1, min_face_detection_confidence=0.5,
+                      min_face_presence_confidence=0.5, min_tracking_confidence=0.5,
+                      model_path=None)
+detector.detect(image_bgr, ts) -> tuple[DetectedFace, ...]
+detector.close()
+```
+
+A detector, not a stage: you call it from your own loop with a BGR image and its capture time
+in seconds (monotonic), and it returns every face it found, in no particular order. Each
+`DetectedFace` has coordinates normalised to the image you passed (`x`, `y` in `[0, 1]`, y
+down):
+
+- `box`: `(x0, y0, x1, y1)`, the extremes of the face mesh (tighter than a detector box)
+- `nose`: the nose tip; `eyes`: the iris centres, **the subject's right eye first**
+- `orientation`: `(roll, pitch, yaw)` in radians. Roll is positive when the eye line turns
+  clockwise in the image, pitch when the head tilts down, yaw when the face turns toward the
+  image's right. A frontal, upright face reads `(0, 0, 0)`.
+- `landmarks`: MediaPipe's 478-point mesh, `(478, 3)` float32
+- `score`: always `None` here (the landmarker exposes no per-face score)
+
+It tracks between calls (MediaPipe `VIDEO` mode), so use one instance per video. It is not
+thread-safe: call it from one thread at a time. Successive calls may come from different
+threads, a thread pool for instance. The constructor downloads the model on first use, so
+build it off any latency-sensitive thread. `FaceDetector` is the seam for other backends.
+
 ### Snapshot
 
 ```
@@ -315,6 +347,7 @@ Nothing is bundled in the wheel. Models download on first use and are cached aft
 | Model | Used by | Size | Cache |
 |---|---|---|---|
 | MediaPipe `hand_landmarker.task` | `MediaPipeHandDetector` | a few MB | `~/.cache/vision-modules/`, overridable with `VISION_MODULES_CACHE` or `model_path=` |
+| MediaPipe `face_landmarker.task` | `MediaPipeFaceDetector` | a few MB | same as above |
 | `dima806/hand_gestures_image_detection` | `HaGRIDViTClassifier` | ~340 MB | Hugging Face's own cache |
 
 Inference device: `select_device()` picks `mps` if available, else `cuda`, else `cpu`. Pass

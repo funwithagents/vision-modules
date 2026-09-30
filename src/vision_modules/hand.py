@@ -195,21 +195,28 @@ class HandStage(Stage[FrameLike, HandResult]):
             self._owned = None  # a restarted run creates a fresh one
 
 
-def default_model_path() -> Path:
+def default_model_path(filename: str = "hand_landmarker.task") -> Path:
+    """Where a downloaded model bundle lives: the shared vision-modules cache."""
     cache_dir = os.environ.get("VISION_MODULES_CACHE")
     base = Path(cache_dir) if cache_dir else Path.home() / ".cache" / "vision-modules"
-    return base / "hand_landmarker.task"
+    return base / filename
 
 
 def ensure_model(path: Path, url: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         return path
-    log.info("downloading hand landmarker model to %s", path)
+    log.info("downloading model to %s", path)
     tmp = path.with_suffix(".part")
     urllib.request.urlretrieve(url, tmp)
     tmp.replace(path)
     return path
+
+
+def video_ts_ms(ts: float, last_ms: int) -> int:
+    """`ts` (seconds) as a MediaPipe VIDEO-mode timestamp, strictly after `last_ms`."""
+    ts_ms = int(ts * 1000)
+    return ts_ms if ts_ms > last_ms else last_ms + 1
 
 
 class MediaPipeHandDetector:
@@ -244,9 +251,7 @@ class MediaPipeHandDetector:
     def detect(self, image_bgr: np.ndarray, ts: float) -> tuple[DetectedHand, ...]:
         rgb = np.ascontiguousarray(image_bgr[..., ::-1])  # BGR -> RGB
         mp_img = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
-        ts_ms = int(ts * 1000)
-        if ts_ms <= self._last_ts_ms:
-            ts_ms = self._last_ts_ms + 1
+        ts_ms = video_ts_ms(ts, self._last_ts_ms)
         self._last_ts_ms = ts_ms
         res = self._lm.detect_for_video(mp_img, ts_ms)
 

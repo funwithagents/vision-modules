@@ -55,8 +55,10 @@ def test_agents_md_maps_exactly_the_package_modules():
 #     ---
 #
 # The spec-drift checks read this to scope what they diff, so it must stay
-# honest: listed paths must exist, and every concept module must be governed by
-# at least one spec. The mapping is many-to-many.
+# honest: listed paths must exist once the spec is built (`Implemented` or
+# `Updated` — a `Draft`/`Stable` spec names the files its plan will create), and
+# every concept module must be governed by at least one spec. The mapping is
+# many-to-many.
 #
 # Parsed with a tiny hand-rolled reader (not PyYAML) — the frontmatter format is
 # authored in this repo and simple.
@@ -64,6 +66,8 @@ def test_agents_md_maps_exactly_the_package_modules():
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 _LIST_KEY = re.compile(r"^(code|tests):\s*$")
 _LIST_ITEM = re.compile(r"^\s*-\s+(.+?)\s*$")
+_STATUS = re.compile(r"^\*\*Status:\*\*\s*(.+?)\s*$", re.MULTILINE)
+_BUILT_STATUSES = {"Implemented", "Updated"}  # code exists; before that it is planned
 
 
 def _spec_files() -> list[Path]:
@@ -91,6 +95,11 @@ def _parse_frontmatter(path: Path) -> dict[str, list[str]]:
     return result
 
 
+def _spec_status(path: Path) -> str | None:
+    match = _STATUS.search(path.read_text(encoding="utf-8"))
+    return match.group(1) if match else None
+
+
 def test_every_spec_declares_the_code_it_governs():
     missing: list[str] = []
     for spec in _spec_files():
@@ -107,6 +116,8 @@ def test_every_spec_declares_the_code_it_governs():
 def test_spec_frontmatter_paths_all_exist():
     stale: list[str] = []
     for spec in _spec_files():
+        if _spec_status(spec) not in _BUILT_STATUSES:
+            continue  # a not-yet-built spec names the files its plan will create
         front = _parse_frontmatter(spec)
         for rel in front.get("code", []) + front.get("tests", []):
             if not (_REPO_ROOT / rel).exists():

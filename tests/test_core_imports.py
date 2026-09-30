@@ -1,6 +1,7 @@
 """The core runs on numpy alone (specs/project.md): with every optional package
 blocked, the package imports, a stream feeds a custom stage, and the
-OpenCV-backed paths fail with an error naming the `opencv` extra."""
+OpenCV-backed paths fail with an error naming the `opencv` extra, and the face
+detector with one naming `face-mediapipe`."""
 
 import subprocess
 import sys
@@ -84,6 +85,15 @@ CORE_ONLY_SCRIPT = textwrap.dedent(
     else:
         raise AssertionError("save_frame should need the opencv extra")
     assert not out.parent.exists()
+
+    from vision_modules.face import MediaPipeFaceDetector
+
+    try:
+        MediaPipeFaceDetector()
+    except ImportError as e:
+        assert "vision-modules[face-mediapipe]" in str(e), e
+    else:
+        raise AssertionError("MediaPipeFaceDetector should need the face-mediapipe extra")
     print("ok")
     """
 )

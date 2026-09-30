@@ -28,6 +28,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | [`pipeline.py`](src/vision_modules/pipeline.py) | Staged-graph runtime: `LatestValue`, `Stage`, `Module`, `Result`, `Pipeline` lifecycle | [specs/pipeline.md](specs/pipeline.md) |
 | [`hand.py`](src/vision_modules/hand.py) | `HandStage` — shared detect + crop once per frame, `HandResult`, `HandDetector` seam | [specs/hand.md](specs/hand.md) |
 | [`gesture_classifier.py`](src/vision_modules/gesture_classifier.py) | `GestureClassifier` module — named gestures from the crop, `ImageClassifier` seam | [specs/gesture_classifier.md](specs/gesture_classifier.md) |
+| [`face.py`](src/vision_modules/face.py) | `FaceDetector` seam, `DetectedFace`, `MediaPipeFaceDetector` — faces with box, nose, eyes, orientation and landmarks | [specs/face.md](specs/face.md) |
 | [`snapshot.py`](src/vision_modules/snapshot.py) | `save_frame` / `save_crops` — write a node's newest `Frame` / `HandResult` crops to a local image file, caller-side | [specs/snapshot.md](specs/snapshot.md) |
 
 **Keep this map current:** when you add, rename, or remove a top-level `src/vision_modules/` module or a root directory, update the map in the same change — same discipline as keeping spec/plan statuses honest (below). A test (`tests/test_project_map.py`) enforces that every `src/vision_modules/*.py` module appears here and vice-versa — and that the spec frontmatter (see below) stays honest too.
@@ -61,7 +62,7 @@ This is the **spec → code/tests** mapping — the inverse of the module → sp
 
 The mapping is **many-to-many**: a file can be governed by several specs, so the same path legitimately appears in more than one spec's frontmatter.
 
-**Keep it current** (same discipline as statuses): when you move, rename, or delete a file a spec governs — or add a new `src/vision_modules/` module — update the affected spec's `code:`/`tests:` in the same change. `tests/test_project_map.py` enforces three invariants: every listed path exists, every spec declares a non-empty `code:` list, and every concept module in `src/vision_modules/` is named by at least one spec (`__init__.py` is exempt as package glue).
+**Keep it current** (same discipline as statuses): when you move, rename, or delete a file a spec governs — or add a new `src/vision_modules/` module — update the affected spec's `code:`/`tests:` in the same change. `tests/test_project_map.py` enforces three invariants: every listed path exists once the spec is built (`Implemented` or `Updated`; a `Draft`/`Stable` spec may name the files its plan will create), every spec declares a non-empty `code:` list, and every concept module in `src/vision_modules/` is named by at least one spec (`__init__.py` is exempt as package glue).
 
 ## Testing
 
