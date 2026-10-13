@@ -17,7 +17,21 @@ Structure and tooling for the Vision Modules project itself: Python version, dep
 ## Decided
 
 - **Python version:** 3.12+ minimum.
-- **Platforms: macOS, Linux and Windows.** The library supports all three: the core is pure Python over numpy, and every extra's dependencies (`opencv-python`, `mediapipe`, `torch`, `transformers`, `pillow`) ship wheels for each (macOS on arm64; Linux and Windows on x86_64). Code stays platform-neutral: paths through `pathlib`, no POSIX-only calls. Support is stated by CI, where the fast tier runs on one runner per platform ([ci.md](ci.md)). Development happens on macOS. On Linux, MediaPipe's native library (`hand`, `face-mediapipe`) loads the system's OpenGL ES and EGL libraries (`libGLESv2.so.2`, `libEGL.so.1`). A desktop install has them; a minimal or server image does not (`apt install libgles2 libegl1`), and the README says so. They are the only system packages the library needs. A hardware path can still behave differently by OS (OpenCV picks AVFoundation, V4L2 or Media Foundation for a camera), and that stays behind the live tier's explicit env var ([testing.md](testing.md)).
+- **Platforms: macOS arm64, Linux x86_64 and Windows x86_64, with support stated per extra.** What a platform can run is bounded by the wheels its dependencies publish:
+
+  | | macOS arm64 | Linux x86_64 | Windows x86_64 | macOS x86_64 (Intel) | Linux arm64 |
+  |---|---|---|---|---|---|
+  | core (`numpy`), `opencv` | supported, CI | supported, CI | supported, CI | expected to work, untested | expected to work, untested |
+  | `hand`, `face-mediapipe` | supported, CI | supported, CI | supported, CI | not installable | not installable |
+
+  - **The three supported platforms** have wheels for every extra's dependencies (`opencv-python`, `mediapipe`, `torch`, `transformers`, `pillow`), and CI runs the fast tier on one runner for each ([ci.md](ci.md)). Development happens on macOS arm64.
+  - **Intel Macs and Linux arm64 are limited by MediaPipe.** `mediapipe` publishes no wheel for either platform and no sdist to build from, and PyTorch publishes no Intel Mac wheel either. So `hand` and `face-mediapipe` cannot install there, and neither can the `dev` group, which pulls every extra. The core and `opencv` have wheels on both (numpy, OpenCV), so the stream and pipeline runtime, custom stages and snapshots are expected to work, but no CI runs there.
+  - **No platform markers hide the gap.** The extras keep `mediapipe` unconditional. An install on an unsupported platform fails at install time with uv's or pip's "no wheel for this platform", which is the honest error. A marker would let the install succeed, and the failure would come later as an `ImportError` telling the user to install the extra they just installed.
+  - **Linux arm64 is the one platform worth revisiting:** Raspberry Pi and Jetson boards run it, so it is where vision would run on a robot's own computer. Supporting it needs a hand and face backend other than MediaPipe, which the per-backend extras (`face-<backend>`) already make room for, plus a core-only CI entry ([ci.md](ci.md) open question 3).
+
+  Code stays platform-neutral: paths go through `pathlib`, with no POSIX-only calls. On Linux, MediaPipe's native library (`hand`, `face-mediapipe`) loads the system's OpenGL ES and EGL libraries (`libGLESv2.so.2`, `libEGL.so.1`). A desktop install has them; a minimal or server image does not (`apt install libgles2 libegl1`), and the README says so. These are the only system packages the library needs.
+
+  A hardware path can still behave differently by OS (OpenCV picks AVFoundation, V4L2 or Media Foundation for a camera), and that stays behind the live tier's explicit env var ([testing.md](testing.md)).
 - **License:** MIT (`LICENSE` at the repo root), declared in `pyproject.toml` via `license = "MIT"` and `license-files = ["LICENSE"]` so built distributions carry it. Models downloaded at runtime are not part of the repo and keep their own licenses (see the README's License section).
 - **Package layout:** `src/` layout — `src/vision_modules/...` — not flat, to avoid accidentally importing an uninstalled package from the repo root.
 - **Dependency/venv management:** `uv`. Dev tooling lives in the `dev` dependency group (`uv sync --dev`), not in runtime `dependencies`.

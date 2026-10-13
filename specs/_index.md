@@ -8,7 +8,7 @@ Vision Modules is a library of independent vision modules that run over a video 
 
 | Spec | Description | Status |
 |---|---|---|
-| [project.md](project.md) | Project structure and tooling: Python version, the platforms (macOS, Linux, Windows), packaging with uv, layout conventions, numpy-only core with feature-named dependency extras (`opencv`, `hand`, `face-mediapipe`), CPU torch on Linux | Implemented |
+| [project.md](project.md) | Project structure and tooling: Python version, the platforms per extra (macOS arm64, Linux x86_64, Windows x86_64; core and `opencv` only on Intel Macs and Linux arm64), packaging with uv, layout conventions, numpy-only core with feature-named dependency extras (`opencv`, `hand`, `face-mediapipe`), CPU torch on Linux | Implemented |
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier | Implemented |
 | [ci.md](ci.md) | Continuous integration on GitHub's hosted runners: `check` (lint, format, types) on Linux, `fast-tier` on Linux, macOS and Windows, `e2e` (the live tier over the committed fixtures, models cached) on Linux, on every PR and push to `main`; `uv sync --locked`, the expected skips, no secrets | Implemented |
 | [stream.md](stream.md) | Stream: single capture entry point (`StreamProvider`), `Frame` shape and the structural `FrameLike` contract stages type against, frame-ownership rules, injectable `FrameSource`, measured vs. nominal fps, `ts` strictly increasing per provider | Implemented |
