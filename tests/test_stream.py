@@ -1,6 +1,7 @@
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -81,6 +82,37 @@ def test_constructor_does_not_touch_the_source() -> None:
     assert src.reads == 0
     assert sp.latest() is None
     assert sp.ended is False
+
+
+def test_timestamps_stay_strictly_increasing_when_the_clock_does_not_advance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A coarse clock (Windows' time.monotonic() before 3.13 ticks every ~15.6 ms)
+    # returns the same reading for two reads; frozen here so every read ties, across
+    # a restart too, and the provider's ts must still advance (stream.md "Data shape").
+    monkeypatch.setattr(
+        "vision_modules.stream.time", SimpleNamespace(monotonic=lambda: 100.0)
+    )
+    src = SteppedSource([make_image() for _ in range(3)])
+    sp = StreamProvider(src)
+    stamps: list[float] = []
+
+    def capture(n: int) -> None:
+        src.allow()
+        wait_until(lambda: (f := sp.latest()) is not None and f.frame_id == n)
+        f = sp.latest()
+        assert f is not None
+        stamps.append(f.ts)
+
+    with sp:
+        capture(1)
+        capture(2)
+    with sp:  # restarted: ts keeps increasing like frame_id does
+        capture(3)
+
+    assert stamps[0] == 100.0  # an untied reading is published as the clock gave it
+    assert stamps[0] < stamps[1] < stamps[2]
+    assert stamps[2] - stamps[0] < 1e-3  # nudged, not moved off the clock
 
 
 def test_start_opens_the_source() -> None:

@@ -24,6 +24,7 @@ Implementation plans for Vision Modules — each plan turns a settled part of a 
 | [202609290956_opencv-extra.md](202609290956_opencv-extra.md) | Numpy-only core: `opencv-python` moves to an `opencv` extra, `cv2` imported lazily in `OpenCVSource.open()` and the snapshot writer, numpy `mirror`/BGR→RGB, subprocess test pinning the core | Done |
 | [202609291100_framelike.md](202609291100_framelike.md) | `FrameLike` protocol in `stream.py`; `HandStage`, `save_frame` and `save_input` typed against it instead of `Frame`, so a host's own frame class and slot feed the shipped stages pyright-clean | Done |
 | [202609300912_face-detector.md](202609300912_face-detector.md) | `face.py`: `FaceDetector` seam, `DetectedFace`, `MediaPipeFaceDetector` (Tasks `FaceLandmarker`, orientation from the transformation matrix), `face-mediapipe` extra, fast tests on a fake landmarker, live tests on public-domain pose fixtures | Done |
+| [202610131200_ci.md](202610131200_ci.md) | CI: `.github/workflows/ci.yml` (`check`, `fast-tier` on three platforms, `e2e` on Linux), CPU torch on Linux via the PyTorch index, platforms in `project.md`; fixes the first run found (Windows `ts` ties, MediaPipe's Linux GLES/EGL libs) | Done |
 
 ## Status legend
 

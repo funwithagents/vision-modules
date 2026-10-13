@@ -17,6 +17,21 @@ Structure and tooling for the Vision Modules project itself: Python version, dep
 ## Decided
 
 - **Python version:** 3.12+ minimum.
+- **Platforms: macOS arm64, Linux x86_64 and Windows x86_64, with support stated per extra.** What a platform can run is bounded by the wheels its dependencies publish:
+
+  | | macOS arm64 | Linux x86_64 | Windows x86_64 | macOS x86_64 (Intel) | Linux arm64 |
+  |---|---|---|---|---|---|
+  | core (`numpy`), `opencv` | supported, CI | supported, CI | supported, CI | expected to work, untested | expected to work, untested |
+  | `hand`, `face-mediapipe` | supported, CI | supported, CI | supported, CI | not installable | not installable |
+
+  - **The three supported platforms** have wheels for every extra's dependencies (`opencv-python`, `mediapipe`, `torch`, `transformers`, `pillow`), and CI runs the fast tier on one runner for each ([ci.md](ci.md)). Development happens on macOS arm64.
+  - **Intel Macs and Linux arm64 are limited by MediaPipe.** `mediapipe` publishes no wheel for either platform and no sdist to build from, and PyTorch publishes no Intel Mac wheel either. So `hand` and `face-mediapipe` cannot install there, and neither can the `dev` group, which pulls every extra. The core and `opencv` have wheels on both (numpy, OpenCV), so the stream and pipeline runtime, custom stages and snapshots are expected to work, but no CI runs there.
+  - **No platform markers hide the gap.** The extras keep `mediapipe` unconditional. An install on an unsupported platform fails at install time with uv's or pip's "no wheel for this platform", which is the honest error. A marker would let the install succeed, and the failure would come later as an `ImportError` telling the user to install the extra they just installed.
+  - **Linux arm64 is the one platform worth revisiting:** Raspberry Pi and Jetson boards run it, so it is where vision would run on a robot's own computer. Supporting it needs a hand and face backend other than MediaPipe, which the per-backend extras (`face-<backend>`) already make room for, plus a core-only CI entry ([ci.md](ci.md) open question 3).
+
+  Code stays platform-neutral: paths go through `pathlib`, with no POSIX-only calls. On Linux, MediaPipe's native library (`hand`, `face-mediapipe`) loads the system's OpenGL ES and EGL libraries (`libGLESv2.so.2`, `libEGL.so.1`). A desktop install has them; a minimal or server image does not (`apt install libgles2 libegl1`), and the README says so. These are the only system packages the library needs.
+
+  A hardware path can still behave differently by OS (OpenCV picks AVFoundation, V4L2 or Media Foundation for a camera), and that stays behind the live tier's explicit env var ([testing.md](testing.md)).
 - **License:** MIT (`LICENSE` at the repo root), declared in `pyproject.toml` via `license = "MIT"` and `license-files = ["LICENSE"]` so built distributions carry it. Models downloaded at runtime are not part of the repo and keep their own licenses (see the README's License section).
 - **Package layout:** `src/` layout — `src/vision_modules/...` — not flat, to avoid accidentally importing an uninstalled package from the repo root.
 - **Dependency/venv management:** `uv`. Dev tooling lives in the `dev` dependency group (`uv sync --dev`), not in runtime `dependencies`.
@@ -25,6 +40,8 @@ Structure and tooling for the Vision Modules project itself: Python version, dep
   - `hand` = `mediapipe` (the shipped hand detector, [hand.md](hand.md)) + `torch`, `transformers`, `pillow` (the shipped gesture classifier, [gesture_classifier.md](gesture_classifier.md)). `mediapipe` brings its own `opencv-contrib-python`, so `[opencv,hand]` installs two `cv2` variants side by side. This is accepted: they provide the same module, and it was already the case when `opencv-python` was a core dependency.
 
   - `face-mediapipe` = `mediapipe`: the shipped face detector ([face.md](face.md)). The face family names its extras per backend (`face-<backend>`), because its backends will have unrelated dependencies (MediaPipe today, OpenCV Zoo or torch for a recogniser later) and a consumer installs only the one it runs. Same `mediapipe` range as `hand`, and the same `opencv-contrib-python` side by side note applies.
+
+  **On Linux, `torch` resolves from the PyTorch CPU index** — a `[[tool.uv.index]]` named `pytorch-cpu` (`https://download.pytorch.org/whl/cpu`, `explicit = true`) and a `[tool.uv.sources]` entry pinning `torch` to it under a `sys_platform == 'linux'` marker. PyPI's Linux wheel is the CUDA build and pulls gigabytes of NVIDIA libraries that neither a CI runner nor a typical dev box uses, while the CPU build is a couple of hundred MB. macOS and Windows keep PyPI's wheel, which is CPU-only (or MPS) there. The source applies only to this repo's own lock: a uv source is not inherited, so a downstream Linux project that wants CUDA keeps PyPI's default, and one that wants the CPU build declares the index itself.
 
   `uv add --optional <extra> …` / `pip install "vision-modules[opencv,hand]"`. A new feature family (faces, poses, …) gets its own extra; the `dev` group installs every extra so the full test suite and the demo can import everything.
 - **The core imports no optional package at module level.** Importing `vision_modules` (or any of its modules) must succeed with only `numpy` installed. An optional package is imported inside the function or method that needs it (`mediapipe` and `torch`/`transformers`/`PIL` already are), and `cv2` is imported only where OpenCV is actually needed: `OpenCVSource.open()` and the snapshot writer. When it is missing, the `ImportError` names the extra (`pip install "vision-modules[opencv]"`). Everything else that only needs array operations (the `mirror` flip, BGR→RGB for a model) uses numpy. The root keeps re-exporting every public name ([snapshot.md](snapshot.md), [stream.md](stream.md), …); since no import is eager, that costs a numpy-only user nothing. `tests/test_core_imports.py` pins this: in a subprocess where `cv2`, `mediapipe`, `torch`, `transformers` and `PIL` are blocked, it imports the package, runs a `StreamProvider` over an injected source through a `Stage`, and checks that the OpenCV-backed paths fail with the extra's name and `MediaPipeFaceDetector()` with `face-mediapipe`'s.
@@ -39,6 +56,7 @@ Structure and tooling for the Vision Modules project itself: Python version, dep
   - `tests/` at repo root, mirroring the `src/vision_modules/` module structure.
   - `tests-e2e/` at repo root, for the live tier above — not collected by the default `pytest` run.
   - `examples/` at repo root — runnable applications built on the library (not part of the package), type-checked with it.
+  - `.github/workflows/` — the CI workflow ([ci.md](ci.md)).
 
 ## Open questions
 
