@@ -89,6 +89,12 @@ extras are named per backend (`face-<backend>`), since later face backends bring
 dependencies. Each feature family gets its own extra, so you install only the perception you
 enable.
 
+Supported platforms are macOS, Linux and Windows. On Linux, MediaPipe's native library (the
+`hand` and `face-mediapipe` extras) loads the system's OpenGL ES and EGL libraries, which a
+desktop has but a minimal or server image may lack (`OSError: libGLESv2.so.2: cannot open
+shared object file`). Install them with `sudo apt-get install libgles2 libegl1` (Debian and
+Ubuntu).
+
 For development, `uv sync --dev` installs every extra plus the tooling and the demo's
 dependencies.
 

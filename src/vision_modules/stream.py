@@ -121,6 +121,7 @@ class StreamProvider:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._frame_id = 0
+        self._last_ts = float("-inf")  # ts is strictly increasing per provider
         self._ended = False
         # Exact number of frames ever published (across restarts) — same
         # contract as Stage.published_count, so one meter fits every node.
@@ -196,5 +197,9 @@ class StreamProvider:
                 img = np.ascontiguousarray(img[:, ::-1])  # new array, as cv2.flip
             self._frame_id += 1
             self.published_count += 1
-            ts = time.monotonic()
+            # Strictly after the previous frame's ts: on Windows before Python 3.13,
+            # time.monotonic() ticks every ~15.6 ms, so two reads can share a reading.
+            # Nudging keeps the host's clock, which perf_counter would not (stream.md).
+            ts = max(time.monotonic(), self._last_ts + 1e-6)
+            self._last_ts = ts
             self._slot.publish(Frame(self._frame_id, ts, img))

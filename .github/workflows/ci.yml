@@ -6,8 +6,9 @@
 # network, camera or model and is where a platform's own paths (the lock's markers, file
 # paths, thread timing) meet a machine of that platform; and `e2e`, the live tier over the
 # committed fixtures, on Linux, the one platform no local run covers. None waits on
-# another: a run takes as long as its slowest job. Every dependency is a wheel — no apt
-# or brew step — and torch on Linux comes from PyTorch's CPU index (pyproject.toml). No
+# another: a run takes as long as its slowest job. Every Python dependency is a wheel; the
+# live job alone apt-installs the GLES/EGL libraries MediaPipe's native library loads on
+# Linux. Torch on Linux comes from PyTorch's CPU index (pyproject.toml). No
 # secret is needed; the spec's expected-skips table says which live tests skip here.
 
 name: CI
@@ -69,6 +70,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+      # MediaPipe's libmediapipe.so loads libGLESv2.so.2 / libEGL.so.1, which the runner
+      # image lacks: the same recipe the README gives Linux users.
+      - name: System packages (OpenGL ES and EGL for MediaPipe)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends -o Acquire::http::Timeout=30 -o Acquire::Retries=3 libgles2 libegl1
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true

@@ -21,7 +21,7 @@ Both test tiers run on GitHub's hosted runners for every pull request and every 
 - **The fast tier runs on every supported platform.** It needs no network, camera or model ([testing.md](testing.md)), so it runs unchanged on all three runners. Each runner is where that platform's own behaviour meets a real machine: the dependency markers of the lock (CPU torch from PyTorch's index on Linux, PyPI's wheel elsewhere), file paths and atomic renames (`ensure_model`), thread and timer timing in the pipeline runtime, and the subprocess import test. Development happens on macOS, so the Linux and Windows entries are where those platforms are exercised. A failure that shows up only on one platform is a library bug to fix, not a reason to drop the platform.
 - **The live tier runs on Linux only.** The live tests run the real models (MediaPipe hand and face landmarkers, the HaGRID ViT) over fixture images, so they could run anywhere. But a macOS runner would mostly repeat the developer's own local run, on worse hardware. GitHub's macOS runners also have no MPS device, so they would not exercise the one path that exists only on macOS (`select_device` → `mps`). Linux is the platform no local run covers, and its x86_64 MediaPipe build is the most likely place for the numeric tolerances (face orientation) to drift away from Apple Silicon. See open question 1.
 - **One Python version**, 3.12: the floor of `requires-python` and the version `.python-version` names. uv installs it on the runner.
-- **No system packages.** Every dependency comes as a wheel on all three platforms: `opencv-python`, `mediapipe` (with its own `opencv-contrib-python`) and torch carry their native libraries. The workflow has no apt or brew step.
+- **Only the live job has system packages.** Every Python dependency comes as a wheel on all three platforms. On Linux, though, MediaPipe's native library loads the system's OpenGL ES and EGL libraries, which the Ubuntu runner image lacks. The `e2e` job apt-installs `libgles2` and `libegl1` before the sync, the same recipe the README gives Linux users ([project.md](project.md) "Platforms"). The fast tier never instantiates a MediaPipe task, so it needs no apt step, and macOS and Windows need none at all.
 
 ### The workflow
 
@@ -31,7 +31,7 @@ There is one file, `.github/workflows/ci.yml`. It triggers on `pull_request`, on
 |---|---|
 | `check` | `uv sync --locked`, then `ruff check .`, `ruff format --check .` and `pyright`: the static gate, on Linux |
 | `fast-tier` | `uv sync --locked`, then `pytest`, the fast tier, **once per platform**: a three-entry matrix (`ubuntu-24.04`, `macos-15`, `windows-2025`) with `fail-fast: false`, so one platform's failure leaves the others running |
-| `e2e` | `uv sync --locked`, the model cache restored, then `pytest tests-e2e -rs`: the live tier on Linux |
+| `e2e` | `libgles2` and `libegl1` apt-installed, `uv sync --locked`, the model cache restored, then `pytest tests-e2e -rs`: the live tier on Linux |
 
 The five jobs run side by side, each on its own runner, and none waits for another. A run takes as long as its slowest job. Putting the tiers behind the static gate would only save runner time on a commit that fails lint, which costs nothing on a public repo, and it would add the gate's time to every green run. Each job installs its own environment.
 
