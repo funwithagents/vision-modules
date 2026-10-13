@@ -8,10 +8,10 @@ Vision Modules is a library of independent vision modules that run over a video 
 
 | Spec | Description | Status |
 |---|---|---|
-| [project.md](project.md) | Project structure and tooling: Python version, the platforms (macOS, Linux, Windows), packaging with uv, layout conventions, numpy-only core with feature-named dependency extras (`opencv`, `hand`, `face-mediapipe`), CPU torch on Linux | Updated |
+| [project.md](project.md) | Project structure and tooling: Python version, the platforms (macOS, Linux, Windows), packaging with uv, layout conventions, numpy-only core with feature-named dependency extras (`opencv`, `hand`, `face-mediapipe`), CPU torch on Linux | Implemented |
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier | Implemented |
-| [ci.md](ci.md) | Continuous integration on GitHub's hosted runners: `check` (lint, format, types) on Linux, `fast-tier` on Linux, macOS and Windows, `e2e` (the live tier over the committed fixtures, models cached) on Linux, on every PR and push to `main`; `uv sync --locked`, the expected skips, no secrets | Stable |
-| [stream.md](stream.md) | Stream: single capture entry point (`StreamProvider`), `Frame` shape and the structural `FrameLike` contract stages type against, frame-ownership rules, injectable `FrameSource`, measured vs. nominal fps, `ts` strictly increasing per provider | Updated |
+| [ci.md](ci.md) | Continuous integration on GitHub's hosted runners: `check` (lint, format, types) on Linux, `fast-tier` on Linux, macOS and Windows, `e2e` (the live tier over the committed fixtures, models cached) on Linux, on every PR and push to `main`; `uv sync --locked`, the expected skips, no secrets | Implemented |
+| [stream.md](stream.md) | Stream: single capture entry point (`StreamProvider`), `Frame` shape and the structural `FrameLike` contract stages type against, frame-ownership rules, injectable `FrameSource`, measured vs. nominal fps, `ts` strictly increasing per provider | Implemented |
 | [pipeline.md](pipeline.md) | Pipeline: staged-graph runtime — latest-value sampling, `Stage`/`Module` base classes, `last_input`, `Result` contract, lifecycle and threading rules | Implemented |
 | [hand.md](hand.md) | Hand: shared hand stage (`HandStage`/`HandResult`) detecting, selecting (`max_hands`, area rank with hysteresis, slot-stable order) and cropping hands once per frame behind a boxes-only `HandDetector` seam, over any `Upstream[FrameLike]` | Implemented |
 | [gesture_classifier.md](gesture_classifier.md) | Gesture classifier module: named gestures from the hand crop via an `ImageClassifier` seam (HaGRID ViT shipped) | Implemented |

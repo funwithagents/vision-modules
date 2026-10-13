@@ -8,7 +8,7 @@ tests:
 
 # Stream
 
-**Status:** Updated
+**Status:** Implemented
 
 ## Purpose
 

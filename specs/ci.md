@@ -7,7 +7,7 @@ tests:
 
 # Continuous integration
 
-**Status:** Stable
+**Status:** Implemented
 
 ## Purpose
 
@@ -59,6 +59,10 @@ The five jobs run side by side, each on its own runner, and none waits for anoth
 
 - **No secret is required.** No test in either tier needs a credential today. A future key-gated live test reads its key through `require_env` and skips when the repository holds no such secret, and always on a fork's pull request, which never receives one.
 - **The status checks to require on `main`** are `check`, the three `fast-tier` entries and `e2e`. Requiring them is a repository setting on GitHub, outside the repo.
+
+### Time budget
+
+Measured on the first green run (October 2026): `check` takes about 30 s and each `fast-tier` entry 20 to 40 s, Windows the slowest. `e2e` takes about 70 s: the apt step, the sync, and the live tier itself at about 30 s, which includes the model downloads when the cache is cold. All five run in parallel, so a run takes about a minute and a quarter end to end, bounded by `e2e`. The timeouts (15 min for the static gate and the fast tier, 20 for the live tier) leave a hung thread minutes, not hours.
 
 ## Relationship to the other specs
 
