@@ -8,7 +8,7 @@ tests:
 
 # Project
 
-**Status:** Implemented
+**Status:** Updated
 
 ## Purpose
 
@@ -17,6 +17,7 @@ Structure and tooling for the Vision Modules project itself: Python version, dep
 ## Decided
 
 - **Python version:** 3.12+ minimum.
+- **Platforms: macOS, Linux and Windows.** The library supports all three: the core is pure Python over numpy, and every extra's dependencies (`opencv-python`, `mediapipe`, `torch`, `transformers`, `pillow`) ship wheels for each (macOS on arm64; Linux and Windows on x86_64). Code stays platform-neutral: paths through `pathlib`, no POSIX-only calls. Support is stated by CI, where the fast tier runs on one runner per platform ([ci.md](ci.md)). Development happens on macOS. A hardware path can still behave differently by OS (OpenCV picks AVFoundation, V4L2 or Media Foundation for a camera), and that stays behind the live tier's explicit env var ([testing.md](testing.md)).
 - **License:** MIT (`LICENSE` at the repo root), declared in `pyproject.toml` via `license = "MIT"` and `license-files = ["LICENSE"]` so built distributions carry it. Models downloaded at runtime are not part of the repo and keep their own licenses (see the README's License section).
 - **Package layout:** `src/` layout — `src/vision_modules/...` — not flat, to avoid accidentally importing an uninstalled package from the repo root.
 - **Dependency/venv management:** `uv`. Dev tooling lives in the `dev` dependency group (`uv sync --dev`), not in runtime `dependencies`.
@@ -25,6 +26,8 @@ Structure and tooling for the Vision Modules project itself: Python version, dep
   - `hand` = `mediapipe` (the shipped hand detector, [hand.md](hand.md)) + `torch`, `transformers`, `pillow` (the shipped gesture classifier, [gesture_classifier.md](gesture_classifier.md)). `mediapipe` brings its own `opencv-contrib-python`, so `[opencv,hand]` installs two `cv2` variants side by side. This is accepted: they provide the same module, and it was already the case when `opencv-python` was a core dependency.
 
   - `face-mediapipe` = `mediapipe`: the shipped face detector ([face.md](face.md)). The face family names its extras per backend (`face-<backend>`), because its backends will have unrelated dependencies (MediaPipe today, OpenCV Zoo or torch for a recogniser later) and a consumer installs only the one it runs. Same `mediapipe` range as `hand`, and the same `opencv-contrib-python` side by side note applies.
+
+  **On Linux, `torch` resolves from the PyTorch CPU index** — a `[[tool.uv.index]]` named `pytorch-cpu` (`https://download.pytorch.org/whl/cpu`, `explicit = true`) and a `[tool.uv.sources]` entry pinning `torch` to it under a `sys_platform == 'linux'` marker. PyPI's Linux wheel is the CUDA build and pulls gigabytes of NVIDIA libraries that neither a CI runner nor a typical dev box uses, while the CPU build is a couple of hundred MB. macOS and Windows keep PyPI's wheel, which is CPU-only (or MPS) there. The source applies only to this repo's own lock: a uv source is not inherited, so a downstream Linux project that wants CUDA keeps PyPI's default, and one that wants the CPU build declares the index itself.
 
   `uv add --optional <extra> …` / `pip install "vision-modules[opencv,hand]"`. A new feature family (faces, poses, …) gets its own extra; the `dev` group installs every extra so the full test suite and the demo can import everything.
 - **The core imports no optional package at module level.** Importing `vision_modules` (or any of its modules) must succeed with only `numpy` installed. An optional package is imported inside the function or method that needs it (`mediapipe` and `torch`/`transformers`/`PIL` already are), and `cv2` is imported only where OpenCV is actually needed: `OpenCVSource.open()` and the snapshot writer. When it is missing, the `ImportError` names the extra (`pip install "vision-modules[opencv]"`). Everything else that only needs array operations (the `mirror` flip, BGR→RGB for a model) uses numpy. The root keeps re-exporting every public name ([snapshot.md](snapshot.md), [stream.md](stream.md), …); since no import is eager, that costs a numpy-only user nothing. `tests/test_core_imports.py` pins this: in a subprocess where `cv2`, `mediapipe`, `torch`, `transformers` and `PIL` are blocked, it imports the package, runs a `StreamProvider` over an injected source through a `Stage`, and checks that the OpenCV-backed paths fail with the extra's name and `MediaPipeFaceDetector()` with `face-mediapipe`'s.
@@ -39,6 +42,7 @@ Structure and tooling for the Vision Modules project itself: Python version, dep
   - `tests/` at repo root, mirroring the `src/vision_modules/` module structure.
   - `tests-e2e/` at repo root, for the live tier above — not collected by the default `pytest` run.
   - `examples/` at repo root — runnable applications built on the library (not part of the package), type-checked with it.
+  - `.github/workflows/` — the CI workflow ([ci.md](ci.md)).
 
 ## Open questions
 

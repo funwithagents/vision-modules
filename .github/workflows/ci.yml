@@ -1,0 +1,91 @@
+# Continuous integration — specs/ci.md.
+#
+# Both test tiers on GitHub's hosted runners, on every pull request and push to main,
+# five jobs side by side: `check` (lint, format, types) on Linux; `fast-tier` once per
+# platform the library supports — Linux, macOS, Windows — since the fast tier needs no
+# network, camera or model and is where a platform's own paths (the lock's markers, file
+# paths, thread timing) meet a machine of that platform; and `e2e`, the live tier over the
+# committed fixtures, on Linux, the one platform no local run covers. None waits on
+# another: a run takes as long as its slowest job. Every dependency is a wheel — no apt
+# or brew step — and torch on Linux comes from PyTorch's CPU index (pyproject.toml). No
+# secret is needed; the spec's expected-skips table says which live tests skip here.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint, format, types
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync (dev group, against the lock)
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format check
+        run: uv run ruff format --check .
+      - name: Type check
+        run: uv run pyright
+
+  fast-tier:
+    name: fast tier (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      # One entry per supported platform, pinned images; one platform's failure leaves
+      # the others running.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync (dev group, against the lock)
+        run: uv sync --locked
+      - name: Fast tier
+        run: uv run pytest
+
+  e2e:
+    name: live tier (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync (dev group, against the lock)
+        run: uv sync --locked
+      # The MediaPipe bundles (~/.cache/vision-modules) and the HaGRID ViT
+      # (~/.cache/huggingface). Keyed on the modules that name the models, with no
+      # restore key: `ensure_model` trusts a file already present under its name, so a
+      # model edited in code must start from an empty cache, never the old weights.
+      - name: Model cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/vision-modules
+            ~/.cache/huggingface
+          key: models-${{ runner.os }}-${{ hashFiles('src/vision_modules/hand.py', 'src/vision_modules/face.py', 'src/vision_modules/gesture_classifier.py') }}
+      - name: Live tier
+        # -rs prints every skip: only the two in specs/ci.md's table are expected.
+        run: uv run pytest tests-e2e -rs

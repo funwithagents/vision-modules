@@ -25,6 +25,7 @@ Tests split into two directories, and the split is structural — a directory bo
 
 - **`tests/` is the normal dev loop.** Fast, deterministic, no real network, no credentials. `pyproject.toml`'s `testpaths = ["tests"]` points the default `uv run pytest` here, so this is what runs on every change and what any contributor or CI can run with zero credentials.
 - **`tests-e2e/` is opt-in.** It calls a real external service — network, credentials, non-deterministic output — so it is deliberately *not* collected by the default run. Because `testpaths` already excludes it, no pytest marker or `--run-e2e` flag is needed: the physical separation is the whole mechanism. Run it explicitly (`uv run pytest tests-e2e`).
+- **CI runs both tiers** on GitHub's hosted runners for every pull request and push to `main`: the fast tier on macOS, Linux and Windows, and the live tier on Linux over the committed fixtures ([ci.md](ci.md)).
 
 The `tests/` tier mirrors the `src/vision_modules/` module layout (`test_<module>.py`, plus the `test_project_map.py` drift-guard); `tests-e2e/` is organized around live scenarios rather than modules.
 
@@ -53,4 +54,4 @@ Some resources have a sensible zero-config default instead of a required credent
 
 ## Open questions
 
-1. **CI wiring.** Nothing here sets up continuous integration. The default `tests/` tier is CI-ready (deterministic, no credentials), and the e2e tier is designed to skip cleanly when keys are absent — but actually running either on a hosted runner is unbuilt. Today all testing is a local, manual command.
+None currently.

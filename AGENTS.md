@@ -15,6 +15,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | `plans/` | Implementation plans turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
 | `tests/` | Fast, deterministic, no-network tests; mirrors the `src/vision_modules/` module structure |
 | `tests-e2e/` | Opt-in live tests that call real external services (not collected by default `pytest`) |
+| `.github/workflows/` | CI: lint, types and both test tiers on GitHub's hosted runners — [specs/ci.md](specs/ci.md) |
 | `examples/` | Runnable application scripts that wire library modules together (not part of the package; `examples/hand_demo.py` is the webcam gesture demo) |
 
 ### `src/vision_modules/` modules
@@ -84,7 +85,7 @@ Some tests call real external services over the network. They live in `tests-e2e
 
 ## Verification
 
-After any code change, run linting, type checking, and tests, and fix any failures before considering the work done.
+After any code change, run linting, type checking, and tests, and fix any failures before considering the work done. CI runs the same gate on every pull request and push to `main` — the fast tier on Linux, macOS and Windows, the live tier on Linux ([specs/ci.md](specs/ci.md)) — so a change that is green locally can still fail on a platform you don't develop on.
 
 ## Commands
 
