@@ -438,7 +438,7 @@ their first run to download weights and fail if that download fails. Environment
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 The models downloaded on first use are not part of this repository and come under their own
 licenses: the MediaPipe `hand_landmarker.task` bundle is Apache-2.0, and
