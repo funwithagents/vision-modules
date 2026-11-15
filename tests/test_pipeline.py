@@ -151,14 +151,21 @@ def test_stage_ignores_empty_upstream() -> None:
 
 
 def test_stage_target_fps_bounds_the_rate() -> None:
+    # target_fps is a ceiling: frames are at least 1 / target_fps apart. Measure how long
+    # the stage takes to process a fixed number of frames, so a slow machine (late thread
+    # start, oversleeping waits) only makes the run longer and never fails the test.
     upstream = IncrementingUpstream()
     st = RecordingStage(upstream, target_fps=20)
+    t0 = time.monotonic()
     st.start()
     try:
-        time.sleep(0.5)
+        wait_until(lambda: len(st.seen) >= 6, timeout=5.0)
+        elapsed = time.monotonic() - t0
     finally:
         st.stop()
-    assert 5 <= len(st.seen) <= 15
+    # Six frames span at least five intervals of 50 ms (10% slack for early timer wake-ups);
+    # without the ceiling the stage would reach six frames in well under a millisecond.
+    assert elapsed >= 5 * (1 / 20) * 0.9
 
 
 def test_published_count_increments_once_per_publish() -> None:
