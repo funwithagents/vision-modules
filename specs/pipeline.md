@@ -35,7 +35,7 @@ StreamProvider                 (root: capture thread, publishes the latest Frame
 
 - **`LatestValue[T]`** — one lock-protected slot. `publish(value)` replaces the slot; `get() -> T | None` returns the current value. Single writer, any number of readers. No queue, no backlog: a slow consumer sees the newest value and never falls behind.
 - **Stale skip.** Every consumer remembers the `frame_id` of the last item it processed and skips when `latest()` returns the same one. A consumer that out-paces its upstream idles instead of reprocessing.
-- **Every published value carries `frame_id` and `ts`** from the originating frame, so results from different modules can be matched ("fused") on the same input frame by the consumer.
+- **Every published value carries `frame_id` and `ts`** from the originating frame, so results from different modules can be matched ("fused") on the same input frame by the consumer. A `Result` also carries `timings`: when each stage on the way to it started and finished its work on that frame ("Stage timings" below).
 - **A stage names the protocol of what it reads, never the class of what a particular provider publishes.** The runtime is structural end to end: an upstream is anything with `latest()`, an item is anything with `frame_id`. Concrete stages keep that property by typing their input as a protocol — a frame consumer is `Stage[FrameLike, …]` over an `Upstream[FrameLike]` ([stream.md](stream.md)), never `Stage[Frame, …]` — so a host with its own frame class and its own latest-value slot can feed the shipped stages without re-publishing through `StreamProvider`.
 
 ### `Stage` — the generic node
@@ -54,7 +54,7 @@ Stage[TIn, TOut](upstream, target_fps: float | None, name: str | None = None)
   .published_count: int   # how many times this stage has actually published, ever (across restarts)
 ```
 
-Worker loop: `item = upstream.latest()`; if `item` is `None` or its `frame_id` equals the last processed one, wait; else record `item` as `last_input`, `out = self.process(item)`, publish `out` when not `None` and increment `published_count`, record the `frame_id`; then sleep so iterations respect `target_fps` (`None` = as fast as upstream delivers). Timing uses `time.monotonic()`.
+Worker loop: `item = upstream.latest()`; if `item` is `None` or its `frame_id` equals the last processed one, wait; else record `item` as `last_input`, read the clock (`started_at`), `out = self.process(item)`, read the clock again (`computed_at`), publish `out` when not `None` (carrying its timings when it is a `Result`, see "Stage timings") and increment `published_count`, record the `frame_id`; then sleep so iterations respect `target_fps` (`None` = as fast as upstream delivers). Timing uses `time.monotonic()`.
 
 - A stage's **effective rate is capped by its upstream's**: it can't publish fresher than it's fed. Set `target_fps` at or above the upstream's to see every item; lower it to deliberately down-sample.
 - **`published_count` measures this stage's own real throughput; `frame_id` does not.** `frame_id` is inherited from the originating `Frame` and only reflects *whose* item was processed, not *how many* items this stage has processed — a down-sampled stage's published `frame_id` jumps ahead by however far the upstream advanced between two of *this* stage's cycles, so `Δframe_id / Δt` measures the upstream's rate, not this stage's own. `published_count` increments exactly once per successful `process()`+publish and nothing else, so `Δpublished_count / Δt` between any two samples (however far apart) is this stage's exact achieved rate — this is the only reliable way for a caller to check a stage's real fps against its `target_fps`.
@@ -68,9 +68,30 @@ Worker loop: `item = upstream.latest()`; if `item` is `None` or its `frame_id` e
 
 A **module** is a `Stage` whose output is a perception `Result` a robot / agent can act on. The uniform interface every module exposes — the property [_index.md](_index.md) promises — is exactly the `Stage` surface: `start()`, `stop()`, `latest()`, `name`, `target_fps`. Enabling a capability means constructing another module on the shared stage and starting it; nothing else in the graph changes.
 
-- **`Result`** — base for every published value, frozen dataclass: `frame_id: int`, `ts: float`, `present: bool`. `present=False` is the graceful "nothing to report on this frame" (no hand, no face, …), so consumers always get a result per processed frame and only special-case `None` as "not started yet".
+- **`Result`** — base for every published value, frozen dataclass: `frame_id: int`, `ts: float`, `present: bool`, and the keyword-only `timings: tuple[StageTiming, ...] = ()` that the runtime fills in ("Stage timings" below). `present=False` is the graceful "nothing to report on this frame" (no hand, no face, …), so consumers always get a result per processed frame and only special-case `None` as "not started yet".
 - Module outputs are typed subclasses (`Gesture`, …), never tuples or dicts. The brainstorm's `result_sink: dict` design is dropped in favour of `latest()` so a module is read exactly like every other node.
 - **Per-subject tuples.** A module built on a shared stage that can find several subjects (hands today, faces or people later) reports one entry per subject, index-aligned with the stage's own tuple, plus a `first` convenience property. Supporting more subjects is then a `max_*` knob, never a breaking change to the result shape. See [hand.md](hand.md).
+
+### Stage timings
+
+`frame_id` and `ts` tell a consumer how old a result is. `timings` tells it where that age went: for each stage on the way to the result, when it picked the frame up and when it finished with it. A host uses them to split a perception latency into its steps (waiting for the stage's turn, detection, waiting for the module, classification) and to see a stage falling behind.
+
+```
+StageTiming(name: str, started_at: float, computed_at: float)   # frozen dataclass
+Result.timings: tuple[StageTiming, ...]                         # upstream first, this result's own stage last
+```
+
+- **`started_at`** is `time.monotonic()` read just before `process()` is called on the item, after the stale skip and after `last_input` is recorded. It is when the stage picked the item up, not when the item was published: the gap between the previous stamp in the chain (the frame's `ts`, or the upstream stage's `computed_at`) and `started_at` is the time the item waited for this stage, whether the stage was sleeping to its `target_fps` or busy with an earlier item.
+- **`computed_at`** is `time.monotonic()` read just after `process()` returns, so `computed_at - started_at` is exactly the time spent in `process()`. Publishing follows immediately.
+- **`name`** is the stage's `name` at that moment: the class name unless the caller set another. Two stages of the same class in one graph share a name unless the caller names them.
+- **The runtime stamps; `process()` does not.** When `process()` returns a `Result`, the runtime publishes a copy (`dataclasses.replace`) whose `timings` are the input item's `timings`, if it has any, followed by this stage's own. Whatever `process()` put in `timings` is replaced. A stage subclass therefore gets timings without any code, and builds its result exactly as before: `timings` is keyword-only with a default, so `Result` subclasses keep adding positional fields.
+- **A downstream result keeps its upstream's stamps.** The upstream timings are copied from the very item this stage consumed, so every timing on a result describes the frame named by its `frame_id`, even when the upstream slot has moved on to a newer frame by the time a caller reads. A `Gesture` carries the hand stage's timing, then the classifier's.
+- **The input's `timings` are read structurally.** An input without that member (a frame, a host's own object) contributes none, so the first stage of a chain publishes exactly one timing. The frame provider adds no timing of its own: capture is `ts`.
+- **An output that is not a `Result` is published as it is.** It has nowhere to carry timings. A failed `process()` and a `None` output publish nothing, so they leave no timing either.
+- **One clock.** The stamps are `time.monotonic()` seconds, the clock `StreamProvider` stamps `ts` with ([stream.md](stream.md)). Converting to wall clock is the caller's job, done the same way for `ts` and for every stamp. No wall-clock stamp is published.
+- **Ordering.** Within the chain the stamps never go backwards: `started_at <= computed_at`, and a stage's `computed_at <= ` the next stage's `started_at`, because they are successive readings of one monotonic clock. `ts <= ` the first `started_at` holds when `ts` is on that clock too, to within the clock's resolution: `StreamProvider` moves a tied `ts` 1 µs forward on a coarse clock ([stream.md](stream.md)), so that first gap can read a few microseconds negative there. The stamps are not clamped to hide it: a clamp would also hide a feed that stamps `ts` on another clock, which shows up as a large negative or absurdly large first gap. A caller floors that one gap at zero.
+- **The first item of a run can be slow.** An owned backend is created lazily inside `process()` (see "Owned resources" above), so loading a model is part of the first timing of each run.
+- No OpenTelemetry, no configuration: the stamps are two clock reads per processed item, always on.
 
 ### Lifecycle
 
@@ -100,3 +121,4 @@ Latest-value + threads is the design. Only if a real need appears: a bounded `ma
 2. **Consumer-side delivery.** Polling `latest()` is decided; should modules also offer a push path (callback on publish, or an `async` iterator) for agents that don't want to poll? Recommendation: add `subscribe(callback)` on `LatestValue` in a later revision; polling is enough for the first modules. Deferrable, but it shapes how a robot / agent integrates.
 3. **Wake-up mechanism.** The worker sleeps to `target_fps` and re-polls; a `threading.Condition` notified on publish would cut latency for `target_fps=None` stages. Deferrable (optimization).
 4. **Fusion.** Whether the library offers a helper to join results by `frame_id` across modules (e.g. compare two modules' outputs on the same frame). Recommendation: consumer-side for now; revisit once two modules run together. Deferrable.
+5. **Naming stages from their constructors.** `HandStage` and `GestureClassifier` do not take a `name` argument, so a `StageTiming.name` is the class name unless the caller assigns `stage.name`. A `name=` keyword on the shipped stages would make two hand stages in one graph tell apart at construction. Deferrable until a graph has two stages of one class.

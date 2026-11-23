@@ -3,11 +3,12 @@
 Governed by specs/pipeline.md.
 """
 
+import dataclasses
 import logging
 import threading
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Protocol, Self
 
@@ -40,10 +41,23 @@ class Upstream[T](Protocol):
 
 
 @dataclass(frozen=True)
+class StageTiming:
+    """One stage's work on one frame, in `time.monotonic()` seconds (the clock of `ts`)."""
+
+    name: str  # the stage's `name` when it published
+    started_at: float  # taken just before process() was called on the item
+    computed_at: float  # taken just after process() returned
+
+
+@dataclass(frozen=True)
 class Result:
     frame_id: int
     ts: float
     present: bool
+    # The stages that led to this result, upstream first. Filled in by the
+    # runtime as a stage publishes, never by process(). Keyword-only so that
+    # subclasses can keep adding positional fields of their own.
+    timings: tuple[StageTiming, ...] = field(default=(), kw_only=True)
 
 
 class Stage[TIn: HasFrameId, TOut: HasFrameId]:
@@ -125,8 +139,10 @@ class Stage[TIn: HasFrameId, TOut: HasFrameId]:
                 self._input_slot.publish(
                     item
                 )  # a reference: published values are immutable
+                started_at = time.monotonic()
                 try:
                     out = self.process(item)
+                    computed_at = time.monotonic()
                 except Exception as exc:  # spec: errors never kill the graph
                     self.last_error = exc
                     log.exception(
@@ -134,7 +150,8 @@ class Stage[TIn: HasFrameId, TOut: HasFrameId]:
                     )
                 else:
                     if out is not None:
-                        self._slot.publish(out)
+                        own = StageTiming(self.name, started_at, computed_at)
+                        self._slot.publish(_stamped(out, item, own))
                         self.published_count += 1
             # pacing (read target_fps once: it can be reassigned from another thread)
             target_fps = self._target_fps
@@ -146,6 +163,17 @@ class Stage[TIn: HasFrameId, TOut: HasFrameId]:
                     max(remaining, 0.0)
                 )  # wait() returns early when stop() fires
         self.close()
+
+
+def _stamped[T](out: T, item: object, own: StageTiming) -> T:
+    """`out` carrying the timings of the item it was computed from, then `own`.
+
+    Only a `Result` has somewhere to put them; any other output is published as is.
+    """
+    if not isinstance(out, Result):
+        return out
+    upstream: tuple[StageTiming, ...] = getattr(item, "timings", ())
+    return dataclasses.replace(out, timings=(*upstream, own))
 
 
 class Module[TIn: HasFrameId, TOut: Result](Stage[TIn, TOut]):

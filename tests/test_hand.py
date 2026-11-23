@@ -441,3 +441,58 @@ def test_stage_rejects_bad_arguments_before_starting() -> None:
         HandStage(provider, hysteresis=-0.1, detector=detector)
     with pytest.raises(ValueError):
         HandStage(provider, rank="size", detector=detector)  # pyright: ignore[reportArgumentType]
+
+
+# --- Stage timings -------------------------------------------------------------
+
+
+class SlowDetector(ScriptedDetector):
+    def __init__(self, hands: tuple[DetectedHand, ...], work: float) -> None:
+        super().__init__(hands)
+        self.work = work
+
+    def detect(self, image_bgr: np.ndarray, ts: float) -> tuple[DetectedHand, ...]:
+        time.sleep(self.work)
+        return super().detect(image_bgr, ts)
+
+
+def test_hand_result_carries_the_hand_stages_timing_after_the_frames_ts() -> None:
+    provider = FakeProvider()
+    image = np.zeros((48, 64, 3), np.uint8)
+    provider.frame = Frame(1, time.monotonic(), image)  # ts on the stamps' clock
+    stage = HandStage(provider, target_fps=None, detector=SlowDetector((A,), 0.1))
+    with stage:
+        wait_until(lambda: stage.latest() is not None)
+    r = stage.latest()
+    assert r is not None
+    (timing,) = r.timings
+    assert timing.name == "HandStage"
+    assert r.ts <= timing.started_at <= timing.computed_at
+    assert timing.computed_at - timing.started_at >= 0.08  # the detector's 0.1 s
+
+
+def test_hand_result_carries_a_timing_for_an_empty_frame_too() -> None:
+    provider = FakeProvider()
+    provider.frame = make_frame(1)
+    stage = HandStage(provider, target_fps=None, detector=ScriptedDetector(()))
+    with stage:
+        wait_until(lambda: stage.latest() is not None)
+    r = stage.latest()
+    assert r is not None
+    assert not r.present
+    assert [t.name for t in r.timings] == ["HandStage"]
+
+
+def test_hand_result_from_a_foreign_feed_carries_the_timing_too() -> None:
+    feed = ForeignFeed()
+    image = np.zeros((48, 64, 3), np.uint8)
+    feed.frame = ForeignFrame(41, time.monotonic(), image)
+    stage = HandStage(feed, target_fps=None, detector=ScriptedDetector((A,)))
+    with stage:
+        wait_until(lambda: stage.latest() is not None)
+    r = stage.latest()
+    assert r is not None
+    assert r.frame_id == 41
+    (timing,) = r.timings
+    assert timing.name == "HandStage"
+    assert r.ts <= timing.started_at <= timing.computed_at

@@ -45,6 +45,9 @@ Key rules every node obeys:
 
 - **Every published value carries `frame_id` and `ts`** from the originating `Frame`, so results
   from different modules can be matched on the same input frame.
+- **Every `Result` says where its latency went.** `timings` holds one `StageTiming` per stage on
+  the way to it: `started_at` when the stage picked the frame up, `computed_at` when it was done,
+  on the clock of `ts` (`time.monotonic()`). A `Gesture` carries the hand stage's, then its own.
 - **`present=False` is a real result.** A module publishes one `Result` per processed frame;
   "no hand in this frame" is `present=False`, and only `None` means "not started yet".
 - **A stage's real rate is capped by its upstream's.** `target_fps` is a ceiling, not a
@@ -203,6 +206,8 @@ Stage[TIn, TOut](upstream, target_fps: float | None, name: str | None = None)
 
 Module[TIn, TOut: Result](Stage)  # a Stage whose output is a perception Result
 Result: frame_id, ts, present     # frozen base class of every published value
+  .timings                        # tuple[StageTiming, ...]: the stages that led to it, upstream first
+StageTiming: name, started_at, computed_at   # one stage's work on one frame, time.monotonic() seconds
 Pipeline(nodes).start() / .stop() # ordered lifecycle, also a context manager
 ```
 
