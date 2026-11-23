@@ -87,11 +87,11 @@ def test_constructor_does_not_touch_the_source() -> None:
 def test_timestamps_stay_strictly_increasing_when_the_clock_does_not_advance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # A coarse clock (Windows' time.monotonic() before 3.13 ticks every ~15.6 ms)
-    # returns the same reading for two reads; frozen here so every read ties, across
-    # a restart too, and the provider's ts must still advance (stream.md "Data shape").
+    # The provider's guard: should the clock ever give the same reading twice, ts
+    # must still advance. Frozen here so every read ties, across a restart too
+    # (stream.md "Data shape").
     monkeypatch.setattr(
-        "vision_modules.stream.time", SimpleNamespace(monotonic=lambda: 100.0)
+        "vision_modules.stream.time", SimpleNamespace(perf_counter=lambda: 100.0)
     )
     src = SteppedSource([make_image() for _ in range(3)])
     sp = StreamProvider(src)
@@ -113,6 +113,21 @@ def test_timestamps_stay_strictly_increasing_when_the_clock_does_not_advance(
     assert stamps[0] == 100.0  # an untied reading is published as the clock gave it
     assert stamps[0] < stamps[1] < stamps[2]
     assert stamps[2] - stamps[0] < 1e-3  # nudged, not moved off the clock
+
+
+def test_frame_ts_is_a_perf_counter_reading_taken_at_capture() -> None:
+    # The published clock is time.perf_counter(): on Windows with Python 3.12
+    # time.monotonic() has another origin and would land outside these bounds.
+    src = SteppedSource([make_image()])
+    sp = StreamProvider(src)
+    with sp:
+        before = time.perf_counter()
+        src.allow()
+        wait_until(lambda: sp.latest() is not None)
+        after = time.perf_counter()
+    frame = sp.latest()
+    assert frame is not None
+    assert before <= frame.ts <= after
 
 
 def test_start_opens_the_source() -> None:

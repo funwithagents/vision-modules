@@ -459,7 +459,7 @@ class SlowDetector(ScriptedDetector):
 def test_hand_result_carries_the_hand_stages_timing_after_the_frames_ts() -> None:
     provider = FakeProvider()
     image = np.zeros((48, 64, 3), np.uint8)
-    provider.frame = Frame(1, time.monotonic(), image)  # ts on the stamps' clock
+    provider.frame = Frame(1, time.perf_counter(), image)  # ts on the stamps' clock
     stage = HandStage(provider, target_fps=None, detector=SlowDetector((A,), 0.1))
     with stage:
         wait_until(lambda: stage.latest() is not None)
@@ -468,6 +468,7 @@ def test_hand_result_carries_the_hand_stages_timing_after_the_frames_ts() -> Non
     (timing,) = r.timings
     assert timing.name == "HandStage"
     assert r.ts <= timing.started_at <= timing.computed_at
+    assert timing.started_at - r.ts < 1.0  # one clock: the wait is small, not an offset
     assert timing.computed_at - timing.started_at >= 0.08  # the detector's 0.1 s
 
 
@@ -486,7 +487,7 @@ def test_hand_result_carries_a_timing_for_an_empty_frame_too() -> None:
 def test_hand_result_from_a_foreign_feed_carries_the_timing_too() -> None:
     feed = ForeignFeed()
     image = np.zeros((48, 64, 3), np.uint8)
-    feed.frame = ForeignFrame(41, time.monotonic(), image)
+    feed.frame = ForeignFrame(41, time.perf_counter(), image)
     stage = HandStage(feed, target_fps=None, detector=ScriptedDetector((A,)))
     with stage:
         wait_until(lambda: stage.latest() is not None)
@@ -496,3 +497,4 @@ def test_hand_result_from_a_foreign_feed_carries_the_timing_too() -> None:
     (timing,) = r.timings
     assert timing.name == "HandStage"
     assert r.ts <= timing.started_at <= timing.computed_at
+    assert timing.started_at - r.ts < 1.0

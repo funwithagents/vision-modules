@@ -26,6 +26,7 @@ Implementation plans for Vision Modules — each plan turns a settled part of a 
 | [202609300912_face-detector.md](202609300912_face-detector.md) | `face.py`: `FaceDetector` seam, `DetectedFace`, `MediaPipeFaceDetector` (Tasks `FaceLandmarker`, orientation from the transformation matrix), `face-mediapipe` extra, fast tests on a fake landmarker, live tests on public-domain pose fixtures | Done |
 | [202610131200_ci.md](202610131200_ci.md) | CI: `.github/workflows/ci.yml` (`check`, `fast-tier` on three platforms, `e2e` on Linux), CPU torch on Linux via the PyTorch index, platforms in `project.md`; fixes the first run found (Windows `ts` ties, MediaPipe's Linux GLES/EGL libs) | Done |
 | [202611231103_stage-timings.md](202611231103_stage-timings.md) | Stage timings: `StageTiming` and `Result.timings`, stamped by the runtime around `process()` on `time.monotonic()` and carried from each result to the results built from it; the clock rule for external `FrameLike` feeds | Done |
+| [202611231128_stamps-on-perf-counter.md](202611231128_stamps-on-perf-counter.md) | `ts` and the stage timings on `time.perf_counter()` instead of `time.monotonic()` (one clock with a `perf_counter()` host, fine-grained on Windows); pacing stays on `time.monotonic()`; the strict-increase guard kept | Done |
 
 ## Status legend
 

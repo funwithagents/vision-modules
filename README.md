@@ -47,7 +47,7 @@ Key rules every node obeys:
   from different modules can be matched on the same input frame.
 - **Every `Result` says where its latency went.** `timings` holds one `StageTiming` per stage on
   the way to it: `started_at` when the stage picked the frame up, `computed_at` when it was done,
-  on the clock of `ts` (`time.monotonic()`). A `Gesture` carries the hand stage's, then its own.
+  on the clock of `ts` (`time.perf_counter()`). A `Gesture` carries the hand stage's, then its own.
 - **`present=False` is a real result.** A module publishes one `Result` per processed frame;
   "no hand in this frame" is `present=False`, and only `None` means "not started yet".
 - **A stage's real rate is capped by its upstream's.** `target_fps` is a ceiling, not a
@@ -151,7 +151,7 @@ StreamProvider(source: int | str | FrameSource = 0, *, mirror: bool = False)
   # also a context manager
 ```
 
-`Frame` is a frozen dataclass: `frame_id` (monotonic, from 1), `ts` (`time.monotonic()` at
+`Frame` is a frozen dataclass: `frame_id` (monotonic, from 1), `ts` (`time.perf_counter()` at
 capture), `image` (`(H, W, 3)` `uint8` **BGR**, OpenCV's native order). BGR is the in-library
 convention; consumers convert as needed and get a new array.
 
@@ -207,7 +207,7 @@ Stage[TIn, TOut](upstream, target_fps: float | None, name: str | None = None)
 Module[TIn, TOut: Result](Stage)  # a Stage whose output is a perception Result
 Result: frame_id, ts, present     # frozen base class of every published value
   .timings                        # tuple[StageTiming, ...]: the stages that led to it, upstream first
-StageTiming: name, started_at, computed_at   # one stage's work on one frame, time.monotonic() seconds
+StageTiming: name, started_at, computed_at   # one stage's work on one frame, time.perf_counter() seconds
 Pipeline(nodes).start() / .stop() # ordered lifecycle, also a context manager
 ```
 
@@ -279,7 +279,7 @@ detector.close()
 ```
 
 A detector, not a stage: you call it from your own loop with a BGR image and its capture time
-in seconds (monotonic), and it returns every face it found, in no particular order. Each
+in seconds (monotonic; `time.perf_counter()`, like `Frame.ts`), and it returns every face it found, in no particular order. Each
 `DetectedFace` has coordinates normalised to the image you passed (`x`, `y` in `[0, 1]`, y
 down):
 

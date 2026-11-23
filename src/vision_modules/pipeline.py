@@ -42,7 +42,7 @@ class Upstream[T](Protocol):
 
 @dataclass(frozen=True)
 class StageTiming:
-    """One stage's work on one frame, in `time.monotonic()` seconds (the clock of `ts`)."""
+    """One stage's work on one frame, in `time.perf_counter()` seconds (the clock of `ts`)."""
 
     name: str  # the stage's `name` when it published
     started_at: float  # taken just before process() was called on the item
@@ -131,18 +131,23 @@ class Stage[TIn: HasFrameId, TOut: HasFrameId]:
 
     def _run(self) -> None:
         _last_id: int | None = None
+        # Two kinds of clock read, never subtracted from each other:
+        # - stamps (started_at, computed_at) are published and compared with a
+        #   frame's ts, so they are on time.perf_counter(), the clock of ts;
+        # - pacing (t0, remaining) only asks "has enough time passed?" and stays
+        #   on time.monotonic().
         while not self._stop_event.is_set():
-            t0 = time.monotonic()
+            t0 = time.monotonic()  # pacing
             item = self._upstream.latest()
             if item is not None and item.frame_id != _last_id:
                 _last_id = item.frame_id
                 self._input_slot.publish(
                     item
                 )  # a reference: published values are immutable
-                started_at = time.monotonic()
+                started_at = time.perf_counter()  # stamp
                 try:
                     out = self.process(item)
-                    computed_at = time.monotonic()
+                    computed_at = time.perf_counter()  # stamp
                 except Exception as exc:  # spec: errors never kill the graph
                     self.last_error = exc
                     log.exception(
