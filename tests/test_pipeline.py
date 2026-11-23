@@ -494,7 +494,7 @@ class ClockedStage(Stage[Item, Result]):
 
     def process(self, item: Item) -> Result | None:
         time.sleep(self.work)
-        self.inside[item.frame_id] = time.monotonic()
+        self.inside[item.frame_id] = time.perf_counter()
         return Result(item.frame_id, 0.0, True)
 
 
@@ -521,11 +521,13 @@ class EchoStage(Stage[Item, Item]):
 
 def test_result_carries_one_timing_bracketing_its_own_process_call() -> None:
     upstream = FakeUpstream()
-    before = time.monotonic()
+    # perf_counter, the stamps' clock: on Windows with Python 3.12 a stamp left
+    # on time.monotonic() has another origin and would land outside these bounds.
+    before = time.perf_counter()
     upstream.item = Item(7)
     with ClockedStage(upstream, name="detect") as st:
         wait_until(lambda: st.latest() is not None)
-    after = time.monotonic()
+    after = time.perf_counter()
     r = st.latest()
     assert r is not None
     (timing,) = r.timings

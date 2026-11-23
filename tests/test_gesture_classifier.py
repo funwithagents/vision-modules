@@ -302,7 +302,7 @@ class FrameFeed:
 
     def publish(self, frame_id: int) -> None:
         image = np.zeros((48, 64, 3), np.uint8)
-        self.frame = Frame(frame_id, time.monotonic(), image)
+        self.frame = Frame(frame_id, time.perf_counter(), image)
 
 
 class GatedClassifier(ScriptedClassifier):
@@ -336,6 +336,7 @@ def test_gesture_carries_the_hand_stages_timing_then_the_classifiers() -> None:
     hand_timing, own = r.timings
     assert hand_timing == hand_result.timings[0]
     assert r.ts <= hand_timing.started_at <= hand_timing.computed_at
+    assert hand_timing.started_at - r.ts < 1.0  # one clock: a wait, not an offset
     assert hand_timing.computed_at <= own.started_at <= own.computed_at
 
 

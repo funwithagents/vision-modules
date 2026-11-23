@@ -49,7 +49,7 @@ class FaceDetector(Protocol):
 ```
 
 - `image_bgr` is an `(H, W, 3)` `uint8` BGR array, **read-only** to the detector (it is a shared frame, [stream.md](stream.md) ownership rules): a backend that needs another layout converts into its own buffer.
-- `ts` is the frame's time in seconds on a monotonic clock — a `Frame`'s `ts`, or any caller's own capture stamp (e.g. `time.monotonic()` at capture). A tracking backend derives its own video timestamps from it (below); a stateless one ignores it.
+- `ts` is the frame's time in seconds on a monotonic clock — a `Frame`'s `ts`, or any caller's own capture stamp (e.g. `time.perf_counter()` at capture, the clock `Frame.ts` is on — [stream.md](stream.md)). A tracking backend derives its own video timestamps from it (below); a stateless one ignores it.
 - Faces come back in any order; the caller selects.
 - **Threading:** a detector is not thread-safe. It is called by **one caller at a time**, never concurrently; successive calls may come from different threads (a thread pool's worker per call). The constructor may run on yet another thread. `close()` is called once, after the last `detect`, from any thread. This is stricter than nothing and looser than "one fixed thread": it is what a stage's worker thread satisfies, and what a caller dispatching each frame to an asyncio thread pool satisfies too.
 - `detect` after `close()` raises `RuntimeError`; `close()` twice is a no-op.

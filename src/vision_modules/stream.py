@@ -197,9 +197,10 @@ class StreamProvider:
                 img = np.ascontiguousarray(img[:, ::-1])  # new array, as cv2.flip
             self._frame_id += 1
             self.published_count += 1
-            # Strictly after the previous frame's ts: on Windows before Python 3.13,
-            # time.monotonic() ticks every ~15.6 ms, so two reads can share a reading.
-            # Nudging keeps the host's clock, which perf_counter would not (stream.md).
-            ts = max(time.monotonic(), self._last_ts + 1e-6)
+            # ts is on time.perf_counter(), the clock of the stage timings (stream.md).
+            # Strictly after the previous frame's ts: a guard, since two reads of
+            # perf_counter() do not tie in practice, but MediaPipe's video mode
+            # rejects a timestamp that does not advance.
+            ts = max(time.perf_counter(), self._last_ts + 1e-6)
             self._last_ts = ts
             self._slot.publish(Frame(self._frame_id, ts, img))
