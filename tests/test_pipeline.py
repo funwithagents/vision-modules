@@ -11,6 +11,7 @@ from vision_modules.pipeline import (
     Pipeline,
     Result,
     Stage,
+    StageTiming,
     Upstream,
 )
 
@@ -476,3 +477,148 @@ def test_module_is_a_stage_with_result_output() -> None:
     with SimpleModule(upstream, target_fps=None) as mod:
         wait_until(lambda: mod.latest() is not None)
         assert isinstance(mod.latest(), Result)
+
+
+# --- Stage timings -------------------------------------------------------------
+
+
+class ClockedStage(Stage[Item, Result]):
+    """Notes the clock inside process(), optionally after working for `work` seconds."""
+
+    def __init__(
+        self, upstream: Upstream[Item], name: str | None = None, work: float = 0.0
+    ) -> None:
+        super().__init__(upstream, None, name)
+        self.work = work
+        self.inside: dict[int, float] = {}
+
+    def process(self, item: Item) -> Result | None:
+        time.sleep(self.work)
+        self.inside[item.frame_id] = time.monotonic()
+        return Result(item.frame_id, 0.0, True)
+
+
+class RelayStage(Stage[Result, Result]):
+    """A downstream stage: keeps every input it was handed, by frame_id."""
+
+    def __init__(
+        self, upstream: Upstream[Result], name: str, work: float = 0.0
+    ) -> None:
+        super().__init__(upstream, None, name)
+        self.work = work
+        self.inputs: dict[int, Result] = {}
+
+    def process(self, item: Result) -> Result | None:
+        self.inputs[item.frame_id] = item
+        time.sleep(self.work)
+        return Result(item.frame_id, item.ts, True)
+
+
+class EchoStage(Stage[Item, Item]):
+    def process(self, item: Item) -> Item | None:
+        return item
+
+
+def test_result_carries_one_timing_bracketing_its_own_process_call() -> None:
+    upstream = FakeUpstream()
+    before = time.monotonic()
+    upstream.item = Item(7)
+    with ClockedStage(upstream, name="detect") as st:
+        wait_until(lambda: st.latest() is not None)
+    after = time.monotonic()
+    r = st.latest()
+    assert r is not None
+    (timing,) = r.timings
+    assert timing.name == "detect"
+    assert before <= timing.started_at <= st.inside[7] <= timing.computed_at <= after
+
+
+def test_timing_of_a_slow_stage_shows_the_time_it_spent() -> None:
+    upstream = FakeUpstream()
+    upstream.item = Item(1)
+    with ClockedStage(upstream, work=0.1) as st:
+        wait_until(lambda: st.latest() is not None)
+    r = st.latest()
+    assert r is not None
+    (timing,) = r.timings
+    assert timing.computed_at - timing.started_at >= 0.08
+
+
+def test_timing_is_named_after_the_stage_class_by_default() -> None:
+    upstream = FakeUpstream()
+    upstream.item = Item(1)
+    with ClockedStage(upstream) as st:
+        wait_until(lambda: st.latest() is not None)
+    r = st.latest()
+    assert r is not None
+    assert [t.name for t in r.timings] == ["ClockedStage"]
+
+
+def test_downstream_result_keeps_its_upstream_timing_then_adds_its_own() -> None:
+    upstream = FakeUpstream()
+    upstream.item = Item(1)
+    first = ClockedStage(upstream, name="first")
+    second = RelayStage(first, name="second")
+    with Pipeline([first, second]):
+        wait_until(lambda: second.latest() is not None)
+    produced = first.latest()
+    r = second.latest()
+    assert produced is not None and r is not None
+    assert [t.name for t in r.timings] == ["first", "second"]
+    assert r.timings[0] == produced.timings[0]
+    assert r.timings[0].computed_at <= r.timings[1].started_at
+    assert r.timings[1].started_at <= r.timings[1].computed_at
+
+
+def test_upstream_timing_is_the_one_of_the_same_frame_after_upstream_moved_on() -> None:
+    # `first` races ahead on a free-running source while `second` is still
+    # working on an older frame: the timing `second` reports for `first` must be
+    # the one of the frame it consumed, not of whatever `first` holds by now.
+    first = ClockedStage(IncrementingUpstream(), name="first")
+    second = RelayStage(first, name="second", work=0.05)
+    with Pipeline([first, second]):
+        wait_until(lambda: second.published_count >= 3)
+        newest = first.latest()
+        r = second.latest()
+    assert newest is not None and r is not None
+    assert newest.frame_id > r.frame_id
+    consumed = second.inputs[r.frame_id]
+    assert r.timings[0] == consumed.timings[0]
+    assert r.timings[0] != newest.timings[0]
+    assert consumed.timings[0].started_at <= first.inside[r.frame_id]
+    assert first.inside[r.frame_id] <= consumed.timings[0].computed_at
+
+
+def test_an_input_without_timings_gives_a_result_with_only_its_own() -> None:
+    upstream = FakeUpstream()
+    upstream.item = Item(1)  # no `timings` member at all, like a frame
+    with ClockedStage(upstream, name="only") as st:
+        wait_until(lambda: st.latest() is not None)
+    r = st.latest()
+    assert r is not None
+    assert [t.name for t in r.timings] == ["only"]
+
+
+def test_timings_set_by_process_are_replaced_by_the_runtimes() -> None:
+    class Forger(Stage[Item, Result]):
+        def process(self, item: Item) -> Result | None:
+            fake = StageTiming("forged", -1.0, -1.0)
+            return Result(item.frame_id, 0.0, True, timings=(fake,))
+
+    upstream = FakeUpstream()
+    upstream.item = Item(1)
+    with Forger(upstream, None, name="real") as st:
+        wait_until(lambda: st.latest() is not None)
+    r = st.latest()
+    assert r is not None
+    assert [t.name for t in r.timings] == ["real"]
+    assert r.timings[0].started_at > 0
+
+
+def test_an_output_that_is_not_a_result_is_published_untouched() -> None:
+    upstream = FakeUpstream()
+    item = Item(1)
+    upstream.item = item
+    with EchoStage(upstream, None) as st:
+        wait_until(lambda: st.latest() is not None)
+    assert st.latest() is item

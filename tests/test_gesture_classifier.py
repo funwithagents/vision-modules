@@ -10,7 +10,9 @@ from vision_modules.gesture_classifier import (
     HandGesture,
     select_device,
 )
-from vision_modules.hand import Hand, HandResult
+from vision_modules.hand import DetectedHand, Hand, HandResult, HandStage
+from vision_modules.pipeline import Pipeline
+from vision_modules.stream import Frame
 
 # --- Test helpers ------------------------------------------------------------
 
@@ -272,3 +274,133 @@ def test_owns_the_default_classifier_one_per_run(
 def test_select_device_honours_preference() -> None:
     assert select_device("cpu") == "cpu"
     assert select_device() in {"mps", "cuda", "cpu"}
+
+
+# --- Stage timings -------------------------------------------------------------
+
+SCORES = {"fist": 0.1, "palm": 0.8, "stop": 0.1}
+
+
+class BoxDetector:
+    """A hand detector that always finds the same one hand."""
+
+    def detect(self, image_bgr: np.ndarray, ts: float) -> tuple[DetectedHand, ...]:
+        return (DetectedHand((0.25, 0.25, 0.75, 0.75), 0.9),)
+
+    def close(self) -> None:
+        pass
+
+
+class FrameFeed:
+    """A frame slot the test publishes into, stamping `ts` like a provider does."""
+
+    def __init__(self) -> None:
+        self.frame: Frame | None = None
+
+    def latest(self) -> Frame | None:
+        return self.frame
+
+    def publish(self, frame_id: int) -> None:
+        image = np.zeros((48, 64, 3), np.uint8)
+        self.frame = Frame(frame_id, time.monotonic(), image)
+
+
+class GatedClassifier(ScriptedClassifier):
+    """Finishes one classify() call per release() and blocks the rest."""
+
+    def __init__(self, scores: dict[str, float]) -> None:
+        super().__init__(scores)
+        self._gate = threading.Semaphore(0)
+
+    def classify(self, image_bgr: np.ndarray) -> dict[str, float]:
+        self._gate.acquire()
+        return super().classify(image_bgr)
+
+    def release(self, calls: int = 1) -> None:
+        self._gate.release(calls)
+
+
+def test_gesture_carries_the_hand_stages_timing_then_the_classifiers() -> None:
+    feed = FrameFeed()
+    feed.publish(1)
+    hands = HandStage(feed, target_fps=None, detector=BoxDetector())
+    gc = GestureClassifier(
+        hands, target_fps=None, classifier=ScriptedClassifier(SCORES)
+    )
+    with Pipeline([hands, gc]):
+        wait_until(lambda: gc.latest() is not None)
+    hand_result = hands.latest()
+    r = gc.latest()
+    assert hand_result is not None and r is not None
+    assert [t.name for t in r.timings] == ["HandStage", "GestureClassifier"]
+    hand_timing, own = r.timings
+    assert hand_timing == hand_result.timings[0]
+    assert r.ts <= hand_timing.started_at <= hand_timing.computed_at
+    assert hand_timing.computed_at <= own.started_at <= own.computed_at
+
+
+def test_gesture_keeps_its_own_frames_hand_timing_after_the_hand_stage_moved_on() -> (
+    None
+):
+    feed = FrameFeed()
+    classifier = GatedClassifier(SCORES)
+    hands = HandStage(feed, target_fps=None, detector=BoxDetector())
+    gc = GestureClassifier(hands, target_fps=None, classifier=classifier)
+    with Pipeline([hands, gc]):
+        try:
+            feed.publish(1)
+            # the classifier is now held inside frame 1
+            wait_until(lambda: gc.last_input is not None)
+            of_frame_1 = hands.latest()
+            assert of_frame_1 is not None and of_frame_1.frame_id == 1
+            time.sleep(0.05)  # more than one tick of a coarse clock (Windows)
+            feed.publish(2)
+            wait_until(lambda: getattr(hands.latest(), "frame_id", 0) == 2)
+            of_frame_2 = hands.latest()
+            assert of_frame_2 is not None
+            classifier.release()  # frame 1 finishes; frame 2 stays held
+            wait_until(lambda: gc.latest() is not None)
+            r = gc.latest()
+        finally:
+            classifier.release(100)
+    assert r is not None
+    assert r.frame_id == 1
+    assert r.timings[0] == of_frame_1.timings[0]
+    assert r.timings[0] != of_frame_2.timings[0]
+    # frame 2 reached the hand stage while the classifier was still on frame 1
+    assert of_frame_2.timings[0].computed_at <= r.timings[1].computed_at
+
+
+def test_classifier_paced_below_the_hand_stage_shows_the_wait_before_it_started() -> (
+    None
+):
+    # At 5 fps the classifier looks at its upstream once every 0.2 s. A hand
+    # result that lands just after one look waits for the next: that wait is the
+    # gap between the hand stage's computed_at and the classifier's started_at.
+    feed = FrameFeed()
+    hands = HandStage(feed, target_fps=None, detector=BoxDetector())
+    gc = GestureClassifier(hands, target_fps=5, classifier=ScriptedClassifier(SCORES))
+    with Pipeline([hands, gc]):
+        feed.publish(1)
+        wait_until(lambda: gc.latest() is not None)
+        feed.publish(2)
+        wait_until(lambda: getattr(gc.latest(), "frame_id", 0) == 2)
+        r = gc.latest()
+    assert r is not None
+    hand_timing, own = r.timings
+    assert own.started_at - hand_timing.computed_at >= 0.1
+    assert hand_timing.computed_at - hand_timing.started_at < 0.1  # not the hand stage
+    assert own.computed_at - own.started_at < 0.1  # nor the classification itself
+
+
+def test_gesture_built_from_a_bare_hand_result_carries_only_its_own_timing() -> None:
+    stage = FakeHandStage()
+    stage.result = make_hand_result(1, [np.zeros((4, 4, 3), np.uint8)])
+    gc = GestureClassifier(
+        stage, target_fps=None, classifier=ScriptedClassifier(SCORES)
+    )
+    with gc:
+        wait_until(lambda: gc.latest() is not None)
+    r = gc.latest()
+    assert r is not None
+    assert [t.name for t in r.timings] == ["GestureClassifier"]

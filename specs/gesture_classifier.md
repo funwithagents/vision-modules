@@ -33,7 +33,7 @@ The runtime authority is the classifier's `labels` property (read from the model
 - `confidence: float` — score of the top class (`0.0` when no crop).
 - `scores: dict[str, float]` — full label → score map from the model (empty when no crop), so a consumer can apply its own rule.
 
-`Gesture(Result)` — frozen: `frame_id`, `ts`, `present`, plus:
+`Gesture(Result)` — frozen: `frame_id`, `ts`, `present`, `timings` (the hand stage's `StageTiming` for this same frame, then the classifier's own — [pipeline.md](pipeline.md) "Stage timings"; only the classifier's when the upstream published no timings), plus:
 
 - `hands: tuple[HandGesture, ...]` — index-aligned with `HandResult.hands`, so it inherits [hand.md](hand.md)'s slot stability: `hands[i]` follows the same physical hand while that hand stays published. Multi-hand classification needs nothing from this module beyond what it already does — one crop, one `HandGesture`, per published hand, up to the hand stage's `max_hands`.
 - `first: HandGesture | None` — convenience: `hands[0]` or `None`.

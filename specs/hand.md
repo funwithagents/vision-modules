@@ -33,7 +33,7 @@ The trade this makes with the shipped backend must be understood: MediaPipe **tr
 | `crop` | `np.ndarray \| None` | BGR `image[y0:y1, x0:x1]` of the padded box, **an independent copy**; `None` only if the clamped box has zero area (hand at the frame edge) |
 | `score` | `float` | the detector's per-hand score — for `MediaPipeHandDetector` this is the **handedness** (left/right) confidence, the only per-hand score the Tasks API exposes, so it is a weak signal of "how sure is the detector this is a hand" and is **not** the default ranking key |
 
-`HandResult(Result)` — frozen: `frame_id`, `ts`, `present`, plus:
+`HandResult(Result)` — frozen: `frame_id`, `ts`, `present`, `timings` (one `StageTiming`, the hand stage's own: when it picked the frame up and when detection, selection and cropping were done — [pipeline.md](pipeline.md) "Stage timings"), plus:
 
 - `hands: tuple[Hand, ...]` — at most `max_hands` hands, chosen and ordered by the selection rule below. Empty when none; `present == bool(hands)`.
 - `first: Hand | None` — convenience: `hands[0]` or `None`.
